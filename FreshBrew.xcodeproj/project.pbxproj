@@ -13,6 +13,20 @@
 		A10000000000000000000004 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* MenuBarView.swift */; };
 		A10000000000000000000005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000005 /* Assets.xcassets */; };
 		A10000000000000000000006 /* AppIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008 /* AppIdentityTests.swift */; };
+		A10000000000000000000007 /* HomebrewPackage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000012 /* HomebrewPackage.swift */; };
+		A10000000000000000000008 /* UpdateResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000013 /* UpdateResult.swift */; };
+		A10000000000000000000009 /* UpdateProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000014 /* UpdateProgress.swift */; };
+		A1000000000000000000000A /* CleanupResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000015 /* CleanupResult.swift */; };
+		A1000000000000000000000B /* CommandRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000016 /* CommandRunner.swift */; };
+		A1000000000000000000000C /* HomebrewError.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000017 /* HomebrewError.swift */; };
+		A1000000000000000000000D /* HomebrewService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000018 /* HomebrewService.swift */; };
+		A1000000000000000000000E /* AdminAuthorizationContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000019 /* AdminAuthorizationContext.swift */; };
+		A1000000000000000000000F /* CaskRecoveryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000001A /* CaskRecoveryStore.swift */; };
+		A10000000000000000000010 /* HomebrewParsingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000001B /* HomebrewParsingTests.swift */; };
+		A10000000000000000000011 /* HomebrewServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000001C /* HomebrewServiceTests.swift */; };
+		A10000000000000000000012 /* AdminAuthorizationContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000001D /* AdminAuthorizationContextTests.swift */; };
+		A10000000000000000000013 /* CaskRecoveryStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000001E /* CaskRecoveryStoreTests.swift */; };
+		A10000000000000000000014 /* CommandRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000001F /* CommandRunnerTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -36,6 +50,20 @@
 		B10000000000000000000008 /* AppIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIdentityTests.swift; sourceTree = "<group>"; };
 		B10000000000000000000010 /* FreshBrew.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FreshBrew.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B10000000000000000000011 /* FreshBrewTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FreshBrewTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000000000000000000012 /* HomebrewPackage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomebrewPackage.swift; sourceTree = "<group>"; };
+		B10000000000000000000013 /* UpdateResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateResult.swift; sourceTree = "<group>"; };
+		B10000000000000000000014 /* UpdateProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateProgress.swift; sourceTree = "<group>"; };
+		B10000000000000000000015 /* CleanupResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CleanupResult.swift; sourceTree = "<group>"; };
+		B10000000000000000000016 /* CommandRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandRunner.swift; sourceTree = "<group>"; };
+		B10000000000000000000017 /* HomebrewError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomebrewError.swift; sourceTree = "<group>"; };
+		B10000000000000000000018 /* HomebrewService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomebrewService.swift; sourceTree = "<group>"; };
+		B10000000000000000000019 /* AdminAuthorizationContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminAuthorizationContext.swift; sourceTree = "<group>"; };
+		B1000000000000000000001A /* CaskRecoveryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaskRecoveryStore.swift; sourceTree = "<group>"; };
+		B1000000000000000000001B /* HomebrewParsingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomebrewParsingTests.swift; sourceTree = "<group>"; };
+		B1000000000000000000001C /* HomebrewServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomebrewServiceTests.swift; sourceTree = "<group>"; };
+		B1000000000000000000001D /* AdminAuthorizationContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminAuthorizationContextTests.swift; sourceTree = "<group>"; };
+		B1000000000000000000001E /* CaskRecoveryStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaskRecoveryStoreTests.swift; sourceTree = "<group>"; };
+		B1000000000000000000001F /* CommandRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandRunnerTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -70,6 +98,9 @@
 			children = (
 				C10000000000000000000003 /* App */,
 				C10000000000000000000007 /* Features */,
+				C10000000000000000000008 /* Models */,
+				C10000000000000000000009 /* Services */,
+				C1000000000000000000000A /* Support */,
 				B10000000000000000000005 /* Assets.xcassets */,
 				B10000000000000000000007 /* FreshBrew.entitlements */,
 				B10000000000000000000006 /* Info.plist */,
@@ -108,6 +139,11 @@
 			isa = PBXGroup;
 			children = (
 				B10000000000000000000008 /* AppIdentityTests.swift */,
+				B1000000000000000000001D /* AdminAuthorizationContextTests.swift */,
+				B1000000000000000000001E /* CaskRecoveryStoreTests.swift */,
+				B1000000000000000000001F /* CommandRunnerTests.swift */,
+				B1000000000000000000001B /* HomebrewParsingTests.swift */,
+				B1000000000000000000001C /* HomebrewServiceTests.swift */,
 			);
 			path = FreshBrewTests;
 			sourceTree = "<group>";
@@ -118,6 +154,36 @@
 				C10000000000000000000004 /* MenuBar */,
 			);
 			path = Features;
+			sourceTree = "<group>";
+		};
+		C10000000000000000000008 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000015 /* CleanupResult.swift */,
+				B10000000000000000000012 /* HomebrewPackage.swift */,
+				B10000000000000000000014 /* UpdateProgress.swift */,
+				B10000000000000000000013 /* UpdateResult.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		C10000000000000000000009 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000016 /* CommandRunner.swift */,
+				B10000000000000000000017 /* HomebrewError.swift */,
+				B10000000000000000000018 /* HomebrewService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		C1000000000000000000000A /* Support */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000019 /* AdminAuthorizationContext.swift */,
+				B1000000000000000000001A /* CaskRecoveryStore.swift */,
+			);
+			path = Support;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -219,10 +285,19 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1000000000000000000000E /* AdminAuthorizationContext.swift in Sources */,
+				A1000000000000000000000F /* CaskRecoveryStore.swift in Sources */,
+				A1000000000000000000000A /* CleanupResult.swift in Sources */,
+				A1000000000000000000000B /* CommandRunner.swift in Sources */,
 				A10000000000000000000003 /* AppIdentity.swift in Sources */,
 				A10000000000000000000002 /* AppDelegate.swift in Sources */,
 				A10000000000000000000001 /* FreshBrewApp.swift in Sources */,
+				A1000000000000000000000C /* HomebrewError.swift in Sources */,
+				A10000000000000000000007 /* HomebrewPackage.swift in Sources */,
+				A1000000000000000000000D /* HomebrewService.swift in Sources */,
 				A10000000000000000000004 /* MenuBarView.swift in Sources */,
+				A10000000000000000000009 /* UpdateProgress.swift in Sources */,
+				A10000000000000000000008 /* UpdateResult.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -230,7 +305,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000000000000000000012 /* AdminAuthorizationContextTests.swift in Sources */,
 				A10000000000000000000006 /* AppIdentityTests.swift in Sources */,
+				A10000000000000000000013 /* CaskRecoveryStoreTests.swift in Sources */,
+				A10000000000000000000014 /* CommandRunnerTests.swift in Sources */,
+				A10000000000000000000010 /* HomebrewParsingTests.swift in Sources */,
+				A10000000000000000000011 /* HomebrewServiceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
