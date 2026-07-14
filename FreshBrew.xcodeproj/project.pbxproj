@@ -38,6 +38,20 @@
 		A1000000000000000000001D /* FreshBrewPreferencesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000028 /* FreshBrewPreferencesTests.swift */; };
 		A1000000000000000000001E /* PersistenceStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000029 /* PersistenceStoreTests.swift */; };
 		A1000000000000000000001F /* MenuBarModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000002A /* MenuBarModelTests.swift */; };
+		A10000000000000000000020 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000002B /* NotificationService.swift */; };
+		A10000000000000000000021 /* LaunchAtLoginService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000002C /* LaunchAtLoginService.swift */; };
+		A10000000000000000000022 /* AdminAuthorizationPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000002D /* AdminAuthorizationPrompt.swift */; };
+		A10000000000000000000023 /* UpdateActionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000002E /* UpdateActionCoordinator.swift */; };
+		A10000000000000000000024 /* NotificationActionRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000002F /* NotificationActionRouter.swift */; };
+		A10000000000000000000025 /* SessionUnlockMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000030 /* SessionUnlockMonitor.swift */; };
+		A10000000000000000000026 /* SingleInstanceGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000031 /* SingleInstanceGuard.swift */; };
+		A10000000000000000000027 /* HistoryGrouping.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000032 /* HistoryGrouping.swift */; };
+		A10000000000000000000028 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000033 /* HistoryView.swift */; };
+		A10000000000000000000029 /* SkippedPackagesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000034 /* SkippedPackagesView.swift */; };
+		A1000000000000000000002A /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000035 /* AboutView.swift */; };
+		A1000000000000000000002B /* HistoryGroupingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000036 /* HistoryGroupingTests.swift */; };
+		A1000000000000000000002C /* NotificationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000037 /* NotificationServiceTests.swift */; };
+		A1000000000000000000002D /* AppWorkflowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000038 /* AppWorkflowTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -86,6 +100,20 @@
 		B10000000000000000000028 /* FreshBrewPreferencesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreshBrewPreferencesTests.swift; sourceTree = "<group>"; };
 		B10000000000000000000029 /* PersistenceStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceStoreTests.swift; sourceTree = "<group>"; };
 		B1000000000000000000002A /* MenuBarModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarModelTests.swift; sourceTree = "<group>"; };
+		B1000000000000000000002B /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		B1000000000000000000002C /* LaunchAtLoginService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLoginService.swift; sourceTree = "<group>"; };
+		B1000000000000000000002D /* AdminAuthorizationPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminAuthorizationPrompt.swift; sourceTree = "<group>"; };
+		B1000000000000000000002E /* UpdateActionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateActionCoordinator.swift; sourceTree = "<group>"; };
+		B1000000000000000000002F /* NotificationActionRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationActionRouter.swift; sourceTree = "<group>"; };
+		B10000000000000000000030 /* SessionUnlockMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionUnlockMonitor.swift; sourceTree = "<group>"; };
+		B10000000000000000000031 /* SingleInstanceGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SingleInstanceGuard.swift; sourceTree = "<group>"; };
+		B10000000000000000000032 /* HistoryGrouping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryGrouping.swift; sourceTree = "<group>"; };
+		B10000000000000000000033 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
+		B10000000000000000000034 /* SkippedPackagesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkippedPackagesView.swift; sourceTree = "<group>"; };
+		B10000000000000000000035 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
+		B10000000000000000000036 /* HistoryGroupingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryGroupingTests.swift; sourceTree = "<group>"; };
+		B10000000000000000000037 /* NotificationServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationServiceTests.swift; sourceTree = "<group>"; };
+		B10000000000000000000038 /* AppWorkflowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppWorkflowTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -136,6 +164,8 @@
 				B10000000000000000000003 /* AppIdentity.swift */,
 				B10000000000000000000002 /* AppDelegate.swift */,
 				B10000000000000000000001 /* FreshBrewApp.swift */,
+				B1000000000000000000002F /* NotificationActionRouter.swift */,
+				B10000000000000000000030 /* SessionUnlockMonitor.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -161,14 +191,17 @@
 		C10000000000000000000006 /* FreshBrewTests */ = {
 			isa = PBXGroup;
 			children = (
+				B10000000000000000000038 /* AppWorkflowTests.swift */,
 				B10000000000000000000008 /* AppIdentityTests.swift */,
 				B1000000000000000000001D /* AdminAuthorizationContextTests.swift */,
 				B1000000000000000000001E /* CaskRecoveryStoreTests.swift */,
 				B1000000000000000000001F /* CommandRunnerTests.swift */,
 				B10000000000000000000028 /* FreshBrewPreferencesTests.swift */,
+				B10000000000000000000036 /* HistoryGroupingTests.swift */,
 				B1000000000000000000001B /* HomebrewParsingTests.swift */,
 				B1000000000000000000001C /* HomebrewServiceTests.swift */,
 				B1000000000000000000002A /* MenuBarModelTests.swift */,
+				B10000000000000000000037 /* NotificationServiceTests.swift */,
 				B10000000000000000000029 /* PersistenceStoreTests.swift */,
 			);
 			path = FreshBrewTests;
@@ -177,7 +210,10 @@
 		C10000000000000000000007 /* Features */ = {
 			isa = PBXGroup;
 			children = (
+				C1000000000000000000000D /* About */,
+				C1000000000000000000000B /* History */,
 				C10000000000000000000004 /* MenuBar */,
+				C1000000000000000000000C /* SkippedPackages */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -205,6 +241,8 @@
 				B10000000000000000000026 /* HomebrewErrorLogStore.swift */,
 				B10000000000000000000018 /* HomebrewService.swift */,
 				B10000000000000000000023 /* HomebrewServicing.swift */,
+				B1000000000000000000002C /* LaunchAtLoginService.swift */,
+				B1000000000000000000002B /* NotificationService.swift */,
 				B10000000000000000000025 /* UpdateHistoryStore.swift */,
 			);
 			path = Services;
@@ -214,9 +252,37 @@
 			isa = PBXGroup;
 			children = (
 				B10000000000000000000019 /* AdminAuthorizationContext.swift */,
+				B1000000000000000000002D /* AdminAuthorizationPrompt.swift */,
 				B1000000000000000000001A /* CaskRecoveryStore.swift */,
+				B10000000000000000000031 /* SingleInstanceGuard.swift */,
+				B1000000000000000000002E /* UpdateActionCoordinator.swift */,
 			);
 			path = Support;
+			sourceTree = "<group>";
+		};
+		C1000000000000000000000B /* History */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000032 /* HistoryGrouping.swift */,
+				B10000000000000000000033 /* HistoryView.swift */,
+			);
+			path = History;
+			sourceTree = "<group>";
+		};
+		C1000000000000000000000C /* SkippedPackages */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000034 /* SkippedPackagesView.swift */,
+			);
+			path = SkippedPackages;
+			sourceTree = "<group>";
+		};
+		C1000000000000000000000D /* About */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000035 /* AboutView.swift */,
+			);
+			path = About;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -318,12 +384,15 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1000000000000000000002A /* AboutView.swift in Sources */,
 				A1000000000000000000000E /* AdminAuthorizationContext.swift in Sources */,
 				A10000000000000000000015 /* AutomaticCheckMode.swift in Sources */,
 				A1000000000000000000000F /* CaskRecoveryStore.swift in Sources */,
 				A1000000000000000000000A /* CleanupResult.swift in Sources */,
 				A1000000000000000000000B /* CommandRunner.swift in Sources */,
 				A10000000000000000000019 /* FreshBrewPreferences.swift in Sources */,
+				A10000000000000000000027 /* HistoryGrouping.swift in Sources */,
+				A10000000000000000000028 /* HistoryView.swift in Sources */,
 				A10000000000000000000003 /* AppIdentity.swift in Sources */,
 				A10000000000000000000002 /* AppDelegate.swift in Sources */,
 				A10000000000000000000001 /* FreshBrewApp.swift in Sources */,
@@ -333,8 +402,16 @@
 				A10000000000000000000007 /* HomebrewPackage.swift in Sources */,
 				A1000000000000000000000D /* HomebrewService.swift in Sources */,
 				A10000000000000000000018 /* HomebrewServicing.swift in Sources */,
+				A10000000000000000000021 /* LaunchAtLoginService.swift in Sources */,
 				A1000000000000000000001C /* MenuBarModel.swift in Sources */,
 				A10000000000000000000004 /* MenuBarView.swift in Sources */,
+				A10000000000000000000024 /* NotificationActionRouter.swift in Sources */,
+				A10000000000000000000020 /* NotificationService.swift in Sources */,
+				A10000000000000000000025 /* SessionUnlockMonitor.swift in Sources */,
+				A10000000000000000000026 /* SingleInstanceGuard.swift in Sources */,
+				A10000000000000000000029 /* SkippedPackagesView.swift in Sources */,
+				A10000000000000000000022 /* AdminAuthorizationPrompt.swift in Sources */,
+				A10000000000000000000023 /* UpdateActionCoordinator.swift in Sources */,
 				A10000000000000000000009 /* UpdateProgress.swift in Sources */,
 				A10000000000000000000008 /* UpdateResult.swift in Sources */,
 				A10000000000000000000017 /* UpdateHistoryEntry.swift in Sources */,
@@ -346,14 +423,17 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1000000000000000000002D /* AppWorkflowTests.swift in Sources */,
 				A10000000000000000000012 /* AdminAuthorizationContextTests.swift in Sources */,
 				A10000000000000000000006 /* AppIdentityTests.swift in Sources */,
 				A10000000000000000000013 /* CaskRecoveryStoreTests.swift in Sources */,
 				A10000000000000000000014 /* CommandRunnerTests.swift in Sources */,
 				A1000000000000000000001D /* FreshBrewPreferencesTests.swift in Sources */,
+				A1000000000000000000002B /* HistoryGroupingTests.swift in Sources */,
 				A10000000000000000000010 /* HomebrewParsingTests.swift in Sources */,
 				A10000000000000000000011 /* HomebrewServiceTests.swift in Sources */,
 				A1000000000000000000001F /* MenuBarModelTests.swift in Sources */,
+				A1000000000000000000002C /* NotificationServiceTests.swift in Sources */,
 				A1000000000000000000001E /* PersistenceStoreTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

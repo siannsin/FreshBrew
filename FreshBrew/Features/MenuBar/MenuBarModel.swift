@@ -19,6 +19,7 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var progress: UpdateProgress?
     @Published private(set) var statusMessage = "FreshBrew is ready"
     @Published private(set) var lastErrorMessage: String?
+    @Published private(set) var administratorAccessRequired = false
     @Published private(set) var sessionSkippedPackageIDs = Set<String>()
     @Published private(set) var rememberedSkippedPackageIDs: Set<String>
 
@@ -44,9 +45,7 @@ final class MenuBarModel: ObservableObject {
         didSet { preferences.autoCleanupEnabled = autoCleanupEnabled }
     }
 
-    @Published var launchAtLoginEnabled: Bool {
-        didSet { preferences.launchAtLoginEnabled = launchAtLoginEnabled }
-    }
+    @Published private(set) var launchAtLoginEnabled: Bool
 
     var isRunning: Bool {
         activity != .idle
@@ -77,18 +76,23 @@ final class MenuBarModel: ObservableObject {
     private let preferences: FreshBrewPreferences
     private let historyStore: UpdateHistoryStore
     private let errorLogStore: HomebrewErrorLogStore
+    private let notificationService: any NotificationServing
+    private let launchAtLoginService: any LaunchAtLoginServicing
     private let now: @Sendable () -> Date
     private let sleep: @Sendable (TimeInterval) async throws -> Void
 
     private var automaticChecksStarted = false
     private var pendingUnlockCheckTask: Task<Void, Never>?
     private var periodicCheckTask: Task<Void, Never>?
+    private var lastAttemptedPackages: [HomebrewPackage] = []
 
     init(
         homebrewService: any HomebrewServicing = HomebrewService(),
         preferences: FreshBrewPreferences = FreshBrewPreferences(),
         historyStore: UpdateHistoryStore = UpdateHistoryStore(),
         errorLogStore: HomebrewErrorLogStore = HomebrewErrorLogStore(),
+        notificationService: any NotificationServing = NoopNotificationService(),
+        launchAtLoginService: (any LaunchAtLoginServicing)? = nil,
         now: @escaping @Sendable () -> Date = { Date() },
         sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { seconds in
             let nanoseconds = UInt64(max(0, seconds) * 1_000_000_000)
@@ -99,17 +103,24 @@ final class MenuBarModel: ObservableObject {
         self.preferences = preferences
         self.historyStore = historyStore
         self.errorLogStore = errorLogStore
+        self.notificationService = notificationService
+        let resolvedLaunchAtLoginService = launchAtLoginService ?? LaunchAtLoginService()
+        self.launchAtLoginService = resolvedLaunchAtLoginService
         self.now = now
         self.sleep = sleep
         greedyModeEnabled = preferences.greedyModeEnabled
         automaticCheckMode = preferences.automaticCheckMode
         autoCleanupEnabled = preferences.autoCleanupEnabled
-        launchAtLoginEnabled = preferences.launchAtLoginEnabled
+        launchAtLoginEnabled = resolvedLaunchAtLoginService.isEnabled
         rememberedSkippedPackageIDs = preferences.rememberedSkippedPackageIDs
         updateHistory = historyStore.load()
+        preferences.launchAtLoginEnabled = launchAtLoginEnabled
     }
 
-    func checkUpdates(respectMinimumInterval: Bool = false) async -> Bool {
+    func checkUpdates(
+        respectMinimumInterval: Bool = false,
+        notifyIfAvailable: Bool = false
+    ) async -> Bool {
         guard !isRunning else { return false }
         if respectMinimumInterval, !shouldRunHomebrewCheck() {
             return false
@@ -136,9 +147,15 @@ final class MenuBarModel: ObservableObject {
             statusMessage = packages.isEmpty
                 ? "Homebrew is up to date"
                 : "\(packages.count) update\(packages.count == 1 ? "" : "s") available"
+            if notifyIfAvailable {
+                await notificationService.postUpdatesAvailable(count: packages.count)
+            }
             return true
         } catch {
             await handleFailure(error, operation: "check updates")
+            await notificationService.postCheckFailure(
+                message: lastErrorMessage ?? "Homebrew could not complete the update check."
+            )
             return false
         }
     }
@@ -158,6 +175,36 @@ final class MenuBarModel: ObservableObject {
             packages: [package],
             administratorPassword: administratorPassword
         )
+    }
+
+    func retryLastUpdate(administratorPassword: String) async -> UpdateResult? {
+        guard administratorAccessRequired else { return nil }
+        let remainingIDs = Set(availablePackages.map(\.id))
+        let retryPackages = lastAttemptedPackages.filter { remainingIDs.contains($0.id) }
+        guard !retryPackages.isEmpty else {
+            administratorAccessRequired = false
+            return nil
+        }
+        return await update(
+            packages: retryPackages,
+            administratorPassword: administratorPassword,
+            isAdministratorRetry: true
+        )
+    }
+
+    func setLaunchAtLoginEnabled(_ enabled: Bool) {
+        guard enabled != launchAtLoginEnabled else { return }
+        do {
+            try launchAtLoginService.setEnabled(enabled)
+            launchAtLoginEnabled = launchAtLoginService.isEnabled
+            preferences.launchAtLoginEnabled = launchAtLoginEnabled
+            lastErrorMessage = nil
+        } catch {
+            launchAtLoginEnabled = launchAtLoginService.isEnabled
+            preferences.launchAtLoginEnabled = launchAtLoginEnabled
+            lastErrorMessage = error.localizedDescription
+            statusMessage = "Could not change launch at login"
+        }
     }
 
     func cleanup(deep: Bool) async -> CleanupResult? {
@@ -231,7 +278,10 @@ final class MenuBarModel: ObservableObject {
                   self.shouldRunHomebrewCheck() else {
                 return
             }
-            _ = await self.checkUpdates(respectMinimumInterval: true)
+            _ = await self.checkUpdates(
+                respectMinimumInterval: true,
+                notifyIfAvailable: true
+            )
         }
     }
 
@@ -245,9 +295,14 @@ final class MenuBarModel: ObservableObject {
 
     private func update(
         packages: [HomebrewPackage],
-        administratorPassword: String?
+        administratorPassword: String?,
+        isAdministratorRetry: Bool = false
     ) async -> UpdateResult? {
         guard !isRunning, !packages.isEmpty else { return nil }
+        if !isAdministratorRetry {
+            lastAttemptedPackages = packages
+        }
+        administratorAccessRequired = false
         activity = .updating
         statusMessage = "Updating \(packages.count) package\(packages.count == 1 ? "" : "s")…"
         lastErrorMessage = nil
@@ -271,6 +326,16 @@ final class MenuBarModel: ObservableObject {
                 }
             )
             availablePackages = result.remainingPackages
+            administratorAccessRequired = result.failures.contains { failure in
+                if case .permissionRequired = HomebrewError.classified(
+                    operation: failure.operation,
+                    exitCode: failure.exitCode,
+                    output: failure.output
+                ) {
+                    return true
+                }
+                return false
+            }
 
             if !result.completedPackages.isEmpty {
                 updateHistory = historyStore.append(
@@ -304,6 +369,10 @@ final class MenuBarModel: ObservableObject {
 
             return result
         } catch {
+            if let homebrewError = error as? HomebrewError,
+               case .permissionRequired = homebrewError {
+                administratorAccessRequired = true
+            }
             await handleFailure(error, operation: "update packages")
             return nil
         }
@@ -357,7 +426,10 @@ final class MenuBarModel: ObservableObject {
                     return
                 }
                 guard let self else { return }
-                _ = await self.checkUpdates(respectMinimumInterval: true)
+                _ = await self.checkUpdates(
+                    respectMinimumInterval: true,
+                    notifyIfAvailable: true
+                )
             }
         }
     }

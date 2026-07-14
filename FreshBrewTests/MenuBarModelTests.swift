@@ -126,6 +126,84 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertEqual(entries?.first?.output, "network unavailable")
     }
 
+    func testAutomaticCheckPostsOnlyNonzeroUpdateCount() async {
+        let package = makePackage(named: "ripgrep", kind: .formula)
+        let service = FakeHomebrewService(checkResponses: [
+            .packages([]),
+            .packages([package])
+        ])
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+
+        _ = await model.checkUpdates(notifyIfAvailable: true)
+        _ = await model.checkUpdates(notifyIfAvailable: true)
+
+        let updateCounts = await notifications.updateCounts()
+        XCTAssertEqual(updateCounts, [1])
+    }
+
+    func testFailedCheckPostsFailureNotification() async {
+        let service = FakeHomebrewService(checkResponses: [
+            .failure(.commandFailed(HomebrewCommandFailure(
+                operation: "check",
+                exitCode: 1,
+                output: "network unavailable"
+            )))
+        ])
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+
+        _ = await model.checkUpdates()
+
+        let failureMessages = await notifications.failureMessages()
+        XCTAssertEqual(failureMessages, ["Homebrew could not complete the operation."])
+    }
+
+    func testPermissionFailureCanRetrySamePackagesWithCurrentGreedyMode() async {
+        let package = makePackage(named: "stats", kind: .cask)
+        let completedResult = UpdateResult(
+            completedPackages: [makeUpdatedPackage(from: package)],
+            remainingPackages: [],
+            failures: [],
+            timestamp: Date(timeIntervalSince1970: 500)
+        )
+        let service = FakeHomebrewService(
+            checkResponses: [.packages([package])],
+            updateResponses: [
+                .failure(.permissionRequired("sudo: a password is required")),
+                .success(completedResult)
+            ]
+        )
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(service: service, dependencies: dependencies)
+        model.greedyModeEnabled = true
+        _ = await model.checkUpdates()
+
+        _ = await model.updateAll()
+        XCTAssertTrue(model.administratorAccessRequired)
+        _ = await model.retryLastUpdate(administratorPassword: "secret")
+
+        XCTAssertFalse(model.administratorAccessRequired)
+        let updateModes = await service.recordedUpdateGreedyValues()
+        let passwords = await service.recordedAdministratorPasswords()
+        XCTAssertEqual(updateModes, [true, true])
+        XCTAssertEqual(passwords, [nil, "secret"])
+        XCTAssertTrue(model.availablePackages.isEmpty)
+    }
+
     func testFailedManualCheckStillRecordsAttemptTimestamp() async {
         let referenceDate = Date(timeIntervalSince1970: 30_000)
         let service = FakeHomebrewService(checkResponses: [
@@ -266,6 +344,7 @@ final class MenuBarModelTests: XCTestCase {
     private func makeModel(
         service: FakeHomebrewService,
         dependencies: ModelDependencies,
+        notificationService: any NotificationServing = NoopNotificationService(),
         sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { _ in }
     ) -> MenuBarModel {
         let referenceDate = dependencies.referenceDate
@@ -274,6 +353,8 @@ final class MenuBarModelTests: XCTestCase {
             preferences: dependencies.preferences,
             historyStore: dependencies.historyStore,
             errorLogStore: dependencies.errorLogStore,
+            notificationService: notificationService,
+            launchAtLoginService: FakeLaunchAtLoginService(),
             now: { referenceDate },
             sleep: sleep
         )
@@ -353,16 +434,22 @@ private actor FakeHomebrewService: HomebrewServicing {
     }
 
     private var checkResponses: [CheckResponse]
-    private let updateResult: UpdateResult?
+    private var updateResponses: [Result<UpdateResult, HomebrewError>]
     private var checkGreedyValues: [Bool] = []
     private var updateGreedyValues: [Bool] = []
+    private var administratorPasswords: [String?] = []
 
     init(
         checkResponses: [CheckResponse] = [],
-        updateResult: UpdateResult? = nil
+        updateResult: UpdateResult? = nil,
+        updateResponses: [Result<UpdateResult, HomebrewError>] = []
     ) {
         self.checkResponses = checkResponses
-        self.updateResult = updateResult
+        if let updateResult {
+            self.updateResponses = [.success(updateResult)]
+        } else {
+            self.updateResponses = updateResponses
+        }
     }
 
     func checkOutdated(
@@ -386,7 +473,10 @@ private actor FakeHomebrewService: HomebrewServicing {
         onProgress: (@Sendable (UpdateProgress) -> Void)?
     ) async throws -> UpdateResult {
         updateGreedyValues.append(greedy)
-        if let updateResult { return updateResult }
+        administratorPasswords.append(administratorPassword)
+        if !updateResponses.isEmpty {
+            return try updateResponses.removeFirst().get()
+        }
         return UpdateResult(
             completedPackages: [],
             remainingPackages: packages,
@@ -407,8 +497,40 @@ private actor FakeHomebrewService: HomebrewServicing {
         updateGreedyValues
     }
 
+    func recordedAdministratorPasswords() -> [String?] {
+        administratorPasswords
+    }
+
     func checkCount() -> Int {
         checkGreedyValues.count
+    }
+}
+
+private actor FakeNotificationService: NotificationServing {
+    private var counts: [Int] = []
+    private var failures: [String] = []
+
+    func requestAuthorization() async {}
+
+    func postUpdatesAvailable(count: Int) async {
+        guard count > 0 else { return }
+        counts.append(count)
+    }
+
+    func postCheckFailure(message: String) async {
+        failures.append(message)
+    }
+
+    func updateCounts() -> [Int] { counts }
+    func failureMessages() -> [String] { failures }
+}
+
+@MainActor
+private final class FakeLaunchAtLoginService: LaunchAtLoginServicing {
+    var isEnabled = false
+
+    func setEnabled(_ enabled: Bool) throws {
+        isEnabled = enabled
     }
 }
 
