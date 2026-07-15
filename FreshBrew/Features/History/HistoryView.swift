@@ -36,7 +36,7 @@ struct HistoryView: View {
                 }
             }
         }
-        .frame(minWidth: 520, minHeight: 360)
+        .frame(minWidth: 380, minHeight: 300)
         .navigationTitle("Update History")
     }
 }

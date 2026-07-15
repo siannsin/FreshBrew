@@ -19,4 +19,23 @@ final class NotificationServiceTests: XCTestCase {
         XCTAssertEqual(content.title, "FreshBrew check failed")
         XCTAssertEqual(content.body, "Network unavailable")
     }
+
+    func testUpdateCompletionContentIncludesCleanupOutcome() {
+        let completed = NotificationService.updateCompletionContent(
+            updatedCount: 2,
+            cleanupOutcome: .completed
+        )
+        let failed = NotificationService.updateCompletionContent(
+            updatedCount: 1,
+            cleanupOutcome: .failed
+        )
+        let disabled = NotificationService.updateCompletionContent(
+            updatedCount: 3,
+            cleanupOutcome: nil
+        )
+
+        XCTAssertEqual(completed.body, "2 packages updated · Cleanup completed")
+        XCTAssertEqual(failed.body, "1 package updated · Cleanup failed")
+        XCTAssertEqual(disabled.body, "3 packages updated")
+    }
 }

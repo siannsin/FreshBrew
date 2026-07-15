@@ -23,7 +23,12 @@ struct SkippedPackagesView: View {
                 }
             }
         }
-        .frame(minWidth: 420, minHeight: 280)
+        .frame(
+            minWidth: 380,
+            maxWidth: .infinity,
+            minHeight: 300,
+            maxHeight: .infinity
+        )
         .navigationTitle("Skipped Packages")
     }
 

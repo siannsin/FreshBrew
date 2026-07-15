@@ -34,6 +34,7 @@ final class FreshBrewPreferencesTests: XCTestCase {
         let first = FreshBrewPreferences(defaults: defaults)
         first.greedyModeEnabled = true
         first.automaticCheckMode = .periodic
+        first.periodicCheckInterval = 28_800
         first.rememberedSkippedPackageIDs = ["cask:firefox"]
         let date = Date(timeIntervalSince1970: 1234)
         first.lastHomebrewCheckDate = date
@@ -41,6 +42,7 @@ final class FreshBrewPreferencesTests: XCTestCase {
         let second = FreshBrewPreferences(defaults: defaults)
         XCTAssertTrue(second.greedyModeEnabled)
         XCTAssertEqual(second.automaticCheckMode, .periodic)
+        XCTAssertEqual(second.periodicCheckInterval, 28_800)
         XCTAssertEqual(second.rememberedSkippedPackageIDs, ["cask:firefox"])
         XCTAssertEqual(second.lastHomebrewCheckDate, date)
     }

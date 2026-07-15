@@ -56,6 +56,29 @@ final class HomebrewServiceTests: XCTestCase {
         ])
     }
 
+    func testUpdatePreservesCommandFailureWhenVerificationReportsNoUpdates() async throws {
+        let package = package(named: "chatgpt", kind: .cask)
+        let runner = StubCommandRunner(results: [
+            CommandResult(
+                exitCode: 1,
+                standardOutput: "==> Upgrading Cask chatgpt\n",
+                standardError: "installer reported an error"
+            ),
+            CommandResult(exitCode: 0, standardOutput: "", standardError: "")
+        ])
+        let service = makeService(runner: runner)
+
+        let result = try await service.update(
+            packages: [package],
+            greedy: true
+        )
+
+        XCTAssertEqual(result.completedPackages.map(\.name), ["chatgpt"])
+        XCTAssertTrue(result.hasFailures)
+        XCTAssertEqual(result.failures.first?.operation, "upgrade casks")
+        XCTAssertTrue(result.failures.first?.output.contains("installer reported an error") == true)
+    }
+
     func testUpdateForceReinstallsOnlyRefusedCandidateCasks() async throws {
         let package = package(named: "duckduckgo", kind: .cask)
         let runner = StubCommandRunner(results: [

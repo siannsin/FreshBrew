@@ -18,6 +18,7 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var activity: Activity = .idle
     @Published private(set) var progress: UpdateProgress?
     @Published private(set) var statusMessage = "FreshBrew is ready"
+    @Published private(set) var lastHomebrewCheckDate: Date?
     @Published private(set) var lastErrorMessage: String?
     @Published private(set) var administratorAccessRequired = false
     @Published private(set) var sessionSkippedPackageIDs = Set<String>()
@@ -29,7 +30,9 @@ final class MenuBarModel: ObservableObject {
             preferences.greedyModeEnabled = greedyModeEnabled
             availablePackages = []
             sessionSkippedPackageIDs = []
-            statusMessage = "Check updates for the selected Greedy Mode"
+            lastHomebrewCheckDate = nil
+            preferences.lastHomebrewCheckDate = nil
+            statusMessage = "FreshBrew is ready"
         }
     }
 
@@ -40,6 +43,8 @@ final class MenuBarModel: ObservableObject {
             configureAutomaticChecksIfStarted()
         }
     }
+
+    @Published private(set) var periodicCheckInterval: TimeInterval
 
     @Published var autoCleanupEnabled: Bool {
         didSet { preferences.autoCleanupEnabled = autoCleanupEnabled }
@@ -110,10 +115,12 @@ final class MenuBarModel: ObservableObject {
         self.sleep = sleep
         greedyModeEnabled = preferences.greedyModeEnabled
         automaticCheckMode = preferences.automaticCheckMode
+        periodicCheckInterval = max(60, preferences.periodicCheckInterval)
         autoCleanupEnabled = preferences.autoCleanupEnabled
         launchAtLoginEnabled = resolvedLaunchAtLoginService.isEnabled
         rememberedSkippedPackageIDs = preferences.rememberedSkippedPackageIDs
         updateHistory = historyStore.load()
+        lastHomebrewCheckDate = preferences.lastHomebrewCheckDate
         preferences.launchAtLoginEnabled = launchAtLoginEnabled
     }
 
@@ -128,9 +135,11 @@ final class MenuBarModel: ObservableObject {
 
         activity = .checking
         progress = nil
-        statusMessage = "Checking Homebrew updates…"
+        statusMessage = "Checking updates…"
         lastErrorMessage = nil
-        preferences.lastHomebrewCheckDate = now()
+        let checkDate = now()
+        lastHomebrewCheckDate = checkDate
+        preferences.lastHomebrewCheckDate = checkDate
 
         defer {
             activity = .idle
@@ -144,15 +153,17 @@ final class MenuBarModel: ObservableObject {
             )
             availablePackages = packages
             sessionSkippedPackageIDs = []
-            statusMessage = packages.isEmpty
-                ? "Homebrew is up to date"
-                : "\(packages.count) update\(packages.count == 1 ? "" : "s") available"
+            statusMessage = "FreshBrew is ready"
             if notifyIfAvailable {
                 await notificationService.postUpdatesAvailable(count: packages.count)
             }
             return true
         } catch {
-            await handleFailure(error, operation: "check updates")
+            await handleFailure(
+                error,
+                operation: "check updates",
+                status: "Check failed"
+            )
             await notificationService.postCheckFailure(
                 message: lastErrorMessage ?? "Homebrew could not complete the update check."
             )
@@ -203,23 +214,35 @@ final class MenuBarModel: ObservableObject {
             launchAtLoginEnabled = launchAtLoginService.isEnabled
             preferences.launchAtLoginEnabled = launchAtLoginEnabled
             lastErrorMessage = error.localizedDescription
-            statusMessage = "Could not change launch at login"
+            statusMessage = "Setting change failed"
         }
+    }
+
+    func setPeriodicCheckInterval(_ interval: TimeInterval) {
+        let normalizedInterval = max(60, interval)
+        guard periodicCheckInterval != normalizedInterval else { return }
+        periodicCheckInterval = normalizedInterval
+        preferences.periodicCheckInterval = normalizedInterval
+        configureAutomaticChecksIfStarted()
     }
 
     func cleanup(deep: Bool) async -> CleanupResult? {
         guard !isRunning else { return nil }
         activity = .cleaning
-        statusMessage = deep ? "Running deep cleanup…" : "Running cleanup…"
+        statusMessage = "Cleaning up…"
         lastErrorMessage = nil
         defer { activity = .idle }
 
         do {
             let result = try await homebrewService.cleanup(deep: deep)
-            statusMessage = deep ? "Deep cleanup completed" : "Cleanup completed"
+            statusMessage = "FreshBrew is ready"
             return result
         } catch {
-            await handleFailure(error, operation: deep ? "deep cleanup" : "cleanup")
+            await handleFailure(
+                error,
+                operation: deep ? "deep cleanup" : "cleanup",
+                status: "Cleanup failed"
+            )
             return nil
         }
     }
@@ -321,7 +344,6 @@ final class MenuBarModel: ObservableObject {
                 onProgress: { [weak self] progress in
                     Task { @MainActor in
                         self?.progress = progress
-                        self?.statusMessage = progress.message
                     }
                 }
             )
@@ -345,10 +367,33 @@ final class MenuBarModel: ObservableObject {
             }
 
             if result.failures.isEmpty {
-                statusMessage = "Updated \(result.completedCount) package\(result.completedCount == 1 ? "" : "s")"
+                var cleanupOutcome: UpdateCleanupOutcome?
+                if autoCleanupEnabled, !result.completedPackages.isEmpty {
+                    activity = .cleaning
+                    statusMessage = "Cleaning up…"
+                    do {
+                        _ = try await homebrewService.cleanup(deep: false)
+                        cleanupOutcome = .completed
+                        statusMessage = "FreshBrew is ready"
+                    } catch {
+                        cleanupOutcome = .failed
+                        await handleFailure(
+                            error,
+                            operation: "automatic cleanup",
+                            status: "Cleanup failed"
+                        )
+                    }
+                } else {
+                    statusMessage = "FreshBrew is ready"
+                }
+
+                await notificationService.postUpdateCompletion(
+                    updatedCount: result.completedPackages.count,
+                    cleanupOutcome: cleanupOutcome
+                )
             } else {
                 let failureCount = result.failures.count
-                statusMessage = "Some Homebrew updates did not complete"
+                statusMessage = "Update failed"
                 lastErrorMessage = "\(failureCount) update operation\(failureCount == 1 ? "" : "s") failed"
                 for failure in result.failures {
                     try? await errorLogStore.record(
@@ -359,31 +404,31 @@ final class MenuBarModel: ObservableObject {
                 }
             }
 
-            if autoCleanupEnabled, !result.completedPackages.isEmpty {
-                do {
-                    _ = try await homebrewService.cleanup(deep: false)
-                } catch {
-                    await handleFailure(error, operation: "automatic cleanup")
-                }
-            }
-
             return result
         } catch {
             if let homebrewError = error as? HomebrewError,
                case .permissionRequired = homebrewError {
                 administratorAccessRequired = true
             }
-            await handleFailure(error, operation: "update packages")
+            await handleFailure(
+                error,
+                operation: "update packages",
+                status: "Update failed"
+            )
             return nil
         }
     }
 
-    private func handleFailure(_ error: Error, operation: String) async {
+    private func handleFailure(
+        _ error: Error,
+        operation: String,
+        status: String
+    ) async {
         let message = (error as? LocalizedError)?.errorDescription
             ?? error.localizedDescription
         let output = Self.diagnosticOutput(for: error)
         lastErrorMessage = message
-        statusMessage = "Homebrew operation failed"
+        statusMessage = status
         try? await errorLogStore.record(
             operation: operation,
             output: output,
@@ -415,7 +460,7 @@ final class MenuBarModel: ObservableObject {
         periodicCheckTask = nil
 
         guard automaticCheckMode == .periodic else { return }
-        let interval = max(60, preferences.periodicCheckInterval)
+        let interval = periodicCheckInterval
         let sleep = self.sleep
         periodicCheckTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -427,7 +472,7 @@ final class MenuBarModel: ObservableObject {
                 }
                 guard let self else { return }
                 _ = await self.checkUpdates(
-                    respectMinimumInterval: true,
+                    respectMinimumInterval: false,
                     notifyIfAvailable: true
                 )
             }

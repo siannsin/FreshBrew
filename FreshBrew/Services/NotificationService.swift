@@ -1,10 +1,19 @@
 import Foundation
 import UserNotifications
 
+enum UpdateCleanupOutcome: Sendable, Equatable {
+    case completed
+    case failed
+}
+
 protocol NotificationServing: Sendable {
     func requestAuthorization() async
     func postUpdatesAvailable(count: Int) async
     func postCheckFailure(message: String) async
+    func postUpdateCompletion(
+        updatedCount: Int,
+        cleanupOutcome: UpdateCleanupOutcome?
+    ) async
 }
 
 actor NotificationService: NotificationServing {
@@ -42,6 +51,22 @@ actor NotificationService: NotificationServing {
         try? await center.add(request)
     }
 
+    func postUpdateCompletion(
+        updatedCount: Int,
+        cleanupOutcome: UpdateCleanupOutcome?
+    ) async {
+        guard updatedCount > 0 else { return }
+        let request = UNNotificationRequest(
+            identifier: "net.siann.freshbrew.update-completion-\(UUID().uuidString)",
+            content: Self.updateCompletionContent(
+                updatedCount: updatedCount,
+                cleanupOutcome: cleanupOutcome
+            ),
+            trigger: nil
+        )
+        try? await center.add(request)
+    }
+
     nonisolated static func updatesContent(count: Int) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
         content.title = AppIdentity.displayName
@@ -55,6 +80,27 @@ actor NotificationService: NotificationServing {
         let content = UNMutableNotificationContent()
         content.title = "FreshBrew check failed"
         content.body = message
+        content.sound = .default
+        return content
+    }
+
+    nonisolated static func updateCompletionContent(
+        updatedCount: Int,
+        cleanupOutcome: UpdateCleanupOutcome?
+    ) -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = AppIdentity.displayName
+        let noun = updatedCount == 1 ? "package" : "packages"
+        var body = "\(updatedCount) \(noun) updated"
+        switch cleanupOutcome {
+        case .completed:
+            body += " · Cleanup completed"
+        case .failed:
+            body += " · Cleanup failed"
+        case nil:
+            break
+        }
+        content.body = body
         content.sound = .default
         return content
     }
@@ -77,4 +123,8 @@ actor NoopNotificationService: NotificationServing {
     func requestAuthorization() async {}
     func postUpdatesAvailable(count: Int) async {}
     func postCheckFailure(message: String) async {}
+    func postUpdateCompletion(
+        updatedCount: Int,
+        cleanupOutcome: UpdateCleanupOutcome?
+    ) async {}
 }

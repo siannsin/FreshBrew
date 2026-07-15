@@ -45,11 +45,16 @@ final class MenuBarModelTests: XCTestCase {
         _ = await model.checkUpdates()
         model.skip(package, remember: false)
         XCTAssertFalse(model.sessionSkippedPackageIDs.isEmpty)
+        XCTAssertNotNil(model.lastHomebrewCheckDate)
 
         model.greedyModeEnabled = true
 
         XCTAssertTrue(model.availablePackages.isEmpty)
         XCTAssertTrue(model.sessionSkippedPackageIDs.isEmpty)
+        XCTAssertNil(model.lastHomebrewCheckDate)
+        XCTAssertNil(dependencies.preferences.lastHomebrewCheckDate)
+        XCTAssertTrue(model.shouldRunHomebrewCheck())
+        XCTAssertEqual(model.statusMessage, "FreshBrew is ready")
     }
 
     func testRememberedSkipPersistsAndFiltersVisiblePackages() async {
@@ -93,10 +98,118 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertEqual(model.availablePackages, [failed])
         XCTAssertEqual(model.latestUpdate?.packages.map(\.name), ["completed"])
         XCTAssertNotNil(model.lastErrorMessage)
+        XCTAssertEqual(model.statusMessage, "Update failed")
         let logEntries = try? await dependencies.errorLogStore.entries(
             referenceDate: Date(timeIntervalSince1970: 500)
         )
         XCTAssertEqual(logEntries?.map(\.output), ["cask failed"])
+    }
+
+    func testSuccessfulUpdateRunsAutomaticCleanupAndPostsCombinedNotification() async {
+        let package = makePackage(named: "ripgrep", kind: .formula)
+        let service = FakeHomebrewService(
+            updateResult: UpdateResult(
+                completedPackages: [makeUpdatedPackage(from: package)],
+                remainingPackages: [],
+                failures: [],
+                timestamp: Date(timeIntervalSince1970: 500)
+            )
+        )
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+        model.autoCleanupEnabled = true
+
+        _ = await model.update(package: package)
+
+        let cleanupDeepValues = await service.recordedCleanupDeepValues()
+        let completionValues = await notifications.completions()
+        XCTAssertEqual(cleanupDeepValues, [false])
+        XCTAssertEqual(
+            completionValues,
+            [UpdateCompletion(updatedCount: 1, cleanupOutcome: .completed)]
+        )
+        XCTAssertEqual(model.statusMessage, "FreshBrew is ready")
+    }
+
+    func testAutomaticCleanupFailureIsReportedWithSuccessfulUpdate() async {
+        let package = makePackage(named: "ripgrep", kind: .formula)
+        let cleanupFailure = HomebrewError.commandFailed(HomebrewCommandFailure(
+            operation: "cleanup",
+            exitCode: 1,
+            output: "cleanup failed"
+        ))
+        let service = FakeHomebrewService(
+            updateResult: UpdateResult(
+                completedPackages: [makeUpdatedPackage(from: package)],
+                remainingPackages: [],
+                failures: [],
+                timestamp: Date(timeIntervalSince1970: 500)
+            ),
+            cleanupResponses: [.failure(cleanupFailure)]
+        )
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies(now: Date(timeIntervalSince1970: 500))
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+        model.autoCleanupEnabled = true
+
+        _ = await model.update(package: package)
+
+        let completionValues = await notifications.completions()
+        XCTAssertEqual(
+            completionValues,
+            [UpdateCompletion(updatedCount: 1, cleanupOutcome: .failed)]
+        )
+        XCTAssertEqual(model.statusMessage, "Cleanup failed")
+        XCTAssertNotNil(model.lastErrorMessage)
+        let entries = try? await dependencies.errorLogStore.entries(
+            referenceDate: Date(timeIntervalSince1970: 500)
+        )
+        XCTAssertEqual(entries?.first?.operation, "automatic cleanup")
+    }
+
+    func testPartialUpdateDoesNotRunAutomaticCleanupOrPostCompletion() async {
+        let completed = makePackage(named: "ripgrep", kind: .formula)
+        let remaining = makePackage(named: "stats", kind: .cask)
+        let service = FakeHomebrewService(
+            updateResult: UpdateResult(
+                completedPackages: [makeUpdatedPackage(from: completed)],
+                remainingPackages: [remaining],
+                failures: [HomebrewCommandFailure(
+                    operation: "upgrade casks",
+                    exitCode: 1,
+                    output: "cask failed"
+                )],
+                timestamp: Date(timeIntervalSince1970: 500)
+            )
+        )
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+        model.autoCleanupEnabled = true
+
+        _ = await model.update(package: completed)
+
+        let cleanupDeepValues = await service.recordedCleanupDeepValues()
+        let completionValues = await notifications.completions()
+        XCTAssertTrue(cleanupDeepValues.isEmpty)
+        XCTAssertTrue(completionValues.isEmpty)
+        XCTAssertEqual(model.statusMessage, "Update failed")
     }
 
     func testFailedCheckKeepsPreviousPackagesAndWritesErrorLog() async {
@@ -120,6 +233,7 @@ final class MenuBarModelTests: XCTestCase {
 
         XCTAssertEqual(model.availablePackages, [package])
         XCTAssertNotNil(model.lastErrorMessage)
+        XCTAssertEqual(model.statusMessage, "Check failed")
         let entries = try? await dependencies.errorLogStore.entries(
             referenceDate: Date(timeIntervalSince1970: 1_000)
         )
@@ -220,6 +334,7 @@ final class MenuBarModelTests: XCTestCase {
         _ = await model.checkUpdates()
 
         XCTAssertEqual(dependencies.preferences.lastHomebrewCheckDate, referenceDate)
+        XCTAssertEqual(model.lastHomebrewCheckDate, referenceDate)
     }
 
     func testRecentCheckPreventsSchedulingUnlockDelay() async {
@@ -341,6 +456,56 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertEqual(checkCount, 1)
     }
 
+    func testChangingPeriodicIntervalPersistsAndReschedulesActiveTimer() async {
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        dependencies.preferences.periodicCheckInterval = 7_200
+        let controller = ControlledSleeper()
+        let model = makeModel(
+            service: FakeHomebrewService(),
+            dependencies: dependencies,
+            sleep: { seconds in try await controller.sleep(seconds) }
+        )
+        model.automaticCheckMode = .periodic
+        model.startAutomaticChecks()
+        await waitUntil { await controller.totalCallCount() == 1 }
+
+        model.setPeriodicCheckInterval(28_800)
+        await waitUntil { await controller.totalCallCount() == 2 }
+        await waitUntil { await controller.cancelledCallCount() >= 1 }
+        model.stopAutomaticChecks()
+
+        let intervals = await controller.recordedIntervals()
+        XCTAssertEqual(model.periodicCheckInterval, 28_800)
+        XCTAssertEqual(dependencies.preferences.periodicCheckInterval, 28_800)
+        XCTAssertEqual(intervals, [7_200, 28_800])
+    }
+
+    func testPeriodicModeUsesSelectedIntervalWithoutUnlockThresholdGate() async {
+        let referenceDate = Date(timeIntervalSince1970: 40_000)
+        let service = FakeHomebrewService(checkResponses: [.packages([])])
+        let dependencies = makeDependencies(now: referenceDate)
+        defer { dependencies.cleanUp() }
+        dependencies.preferences.lastHomebrewCheckDate = referenceDate
+        dependencies.preferences.periodicCheckInterval = 3_600
+        let controller = ControlledSleeper()
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            sleep: { seconds in try await controller.sleep(seconds) }
+        )
+        model.automaticCheckMode = .periodic
+        model.startAutomaticChecks()
+        await waitUntil { await controller.totalCallCount() == 1 }
+
+        await controller.resumeAll()
+        await waitUntil { await service.checkCount() == 1 }
+        model.stopAutomaticChecks()
+
+        let intervals = await controller.recordedIntervals()
+        XCTAssertEqual(intervals.first, 3_600)
+    }
+
     private func makeModel(
         service: FakeHomebrewService,
         dependencies: ModelDependencies,
@@ -438,13 +603,17 @@ private actor FakeHomebrewService: HomebrewServicing {
     private var checkGreedyValues: [Bool] = []
     private var updateGreedyValues: [Bool] = []
     private var administratorPasswords: [String?] = []
+    private var cleanupResponses: [Result<CleanupResult, HomebrewError>]
+    private var cleanupDeepValues: [Bool] = []
 
     init(
         checkResponses: [CheckResponse] = [],
         updateResult: UpdateResult? = nil,
-        updateResponses: [Result<UpdateResult, HomebrewError>] = []
+        updateResponses: [Result<UpdateResult, HomebrewError>] = [],
+        cleanupResponses: [Result<CleanupResult, HomebrewError>] = []
     ) {
         self.checkResponses = checkResponses
+        self.cleanupResponses = cleanupResponses
         if let updateResult {
             self.updateResponses = [.success(updateResult)]
         } else {
@@ -486,7 +655,11 @@ private actor FakeHomebrewService: HomebrewServicing {
     }
 
     func cleanup(deep: Bool) async throws -> CleanupResult {
-        CleanupResult(isDeepCleanup: deep, output: "", completedAt: Date())
+        cleanupDeepValues.append(deep)
+        if !cleanupResponses.isEmpty {
+            return try cleanupResponses.removeFirst().get()
+        }
+        return CleanupResult(isDeepCleanup: deep, output: "", completedAt: Date())
     }
 
     func recordedCheckGreedyValues() -> [Bool] {
@@ -504,11 +677,21 @@ private actor FakeHomebrewService: HomebrewServicing {
     func checkCount() -> Int {
         checkGreedyValues.count
     }
+
+    func recordedCleanupDeepValues() -> [Bool] {
+        cleanupDeepValues
+    }
+}
+
+private struct UpdateCompletion: Equatable, Sendable {
+    let updatedCount: Int
+    let cleanupOutcome: UpdateCleanupOutcome?
 }
 
 private actor FakeNotificationService: NotificationServing {
     private var counts: [Int] = []
     private var failures: [String] = []
+    private var completionValues: [UpdateCompletion] = []
 
     func requestAuthorization() async {}
 
@@ -521,8 +704,20 @@ private actor FakeNotificationService: NotificationServing {
         failures.append(message)
     }
 
+    func postUpdateCompletion(
+        updatedCount: Int,
+        cleanupOutcome: UpdateCleanupOutcome?
+    ) async {
+        guard updatedCount > 0 else { return }
+        completionValues.append(UpdateCompletion(
+            updatedCount: updatedCount,
+            cleanupOutcome: cleanupOutcome
+        ))
+    }
+
     func updateCounts() -> [Int] { counts }
     func failureMessages() -> [String] { failures }
+    func completions() -> [UpdateCompletion] { completionValues }
 }
 
 @MainActor

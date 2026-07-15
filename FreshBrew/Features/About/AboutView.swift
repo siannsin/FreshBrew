@@ -17,7 +17,7 @@ struct AboutView: View {
             Text("A focused menu bar utility for Homebrew updates.")
                 .multilineTextAlignment(.center)
         }
-        .padding(32)
-        .frame(width: 360, height: 260)
+        .padding(28)
+        .frame(width: 340, height: 230)
     }
 }

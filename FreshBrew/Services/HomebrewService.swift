@@ -138,9 +138,7 @@ actor HomebrewService {
         }
 
         let unfinishedCandidateIDs = Set(candidates.map(\.id)).intersection(remainingIDs)
-        if unfinishedCandidateIDs.isEmpty {
-            commandFailures.removeAll()
-        } else if commandFailures.isEmpty {
+        if !unfinishedCandidateIDs.isEmpty, commandFailures.isEmpty {
             commandFailures.append(HomebrewCommandFailure(
                 operation: "verify updates",
                 exitCode: 0,
