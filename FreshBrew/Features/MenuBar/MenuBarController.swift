@@ -180,17 +180,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         let item = NSMenuItem(title: "Last Update", action: nil, keyEquivalent: "")
         let submenu = NSMenu(title: "Last Update")
 
-        for package in update.packages.prefix(5) {
+        for package in update.packages {
             submenu.addItem(actionItem(
                 "\(package.name) \(package.installedVersion)",
                 action: #selector(ignoreMenuItem)
-            ))
-        }
-
-        if update.packages.count > 5 {
-            submenu.addItem(actionItem(
-                "...and \(update.packages.count - 5) more",
-                action: #selector(showUpdateHistory)
             ))
         }
 

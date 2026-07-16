@@ -54,7 +54,10 @@ final class StatusIconAnimator {
 
     private func showIdleIcon() {
         animatedImageView.isHidden = true
-        button?.image = symbol("cup.and.saucer.fill", weight: .regular)
+        let image = NSImage(named: "MenuBarIcon")?.copy() as? NSImage
+        image?.isTemplate = true
+        image?.size = NSSize(width: 18, height: 18)
+        button?.image = image ?? symbol("leaf.fill", weight: .regular)
     }
 
     private func showAnimatedSymbol(_ name: String, weight: NSFont.Weight) {
