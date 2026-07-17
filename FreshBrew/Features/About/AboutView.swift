@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct AboutView: View {
@@ -6,10 +7,13 @@ struct AboutView: View {
     }
 
     var body: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "cup.and.saucer.fill")
-                .font(.system(size: 52))
-                .symbolRenderingMode(.hierarchical)
+        VStack(spacing: 12) {
+            Image(nsImage: NSApplication.shared.applicationIconImage)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: 64, height: 64)
+                .accessibilityHidden(true)
             Text(AppIdentity.displayName)
                 .font(.title.bold())
             Text("Version \(version)")
@@ -17,7 +21,7 @@ struct AboutView: View {
             Text("A focused menu bar utility for Homebrew updates.")
                 .multilineTextAlignment(.center)
         }
-        .padding(28)
+        .padding(24)
         .frame(width: 340, height: 230)
     }
 }

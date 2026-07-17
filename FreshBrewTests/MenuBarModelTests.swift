@@ -262,6 +262,29 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertEqual(updateCounts, [1])
     }
 
+    func testAutomaticCheckNotificationExcludesRememberedSkippedPackages() async {
+        let skippedPackage = makePackage(named: "chatgpt", kind: .cask)
+        let visiblePackage = makePackage(named: "ripgrep", kind: .formula)
+        let service = FakeHomebrewService(checkResponses: [
+            .packages([skippedPackage, visiblePackage])
+        ])
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        dependencies.preferences.rememberedSkippedPackageIDs = [skippedPackage.id]
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+
+        _ = await model.checkUpdates(notifyIfAvailable: true)
+
+        XCTAssertEqual(model.visiblePackages, [visiblePackage])
+        let updateCounts = await notifications.updateCounts()
+        XCTAssertEqual(updateCounts, [1])
+    }
+
     func testFailedCheckPostsFailureNotification() async {
         let service = FakeHomebrewService(checkResponses: [
             .failure(.commandFailed(HomebrewCommandFailure(

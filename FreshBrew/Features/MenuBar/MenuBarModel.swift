@@ -155,7 +155,7 @@ final class MenuBarModel: ObservableObject {
             sessionSkippedPackageIDs = []
             statusMessage = "FreshBrew is ready"
             if notifyIfAvailable {
-                await notificationService.postUpdatesAvailable(count: packages.count)
+                await notificationService.postUpdatesAvailable(count: visiblePackages.count)
             }
             return true
         } catch {
