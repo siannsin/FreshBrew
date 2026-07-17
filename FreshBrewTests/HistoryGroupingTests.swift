@@ -50,4 +50,37 @@ final class HistoryGroupingTests: XCTestCase {
         XCTAssertEqual(days.count, 2)
         XCTAssertEqual(days.first?.entries.first?.id, newer.id)
     }
+
+    func testCaskVersionDisplayUsesPrimaryCommaSeparatedVersion() {
+        let package = UpdatedPackage(
+            name: "claude",
+            previousVersion: "1.214591.1,85cb5c02268829ab7605f76dfa13a4217159ca9f",
+            installedVersion: "1.22209.0,77c938bac27689d6df971289c10759e512785c73",
+            kind: .cask
+        )
+
+        XCTAssertEqual(
+            HomebrewVersionDisplay.compactTransition(for: package),
+            "1.214591.1 → 1.22209.0"
+        )
+        XCTAssertEqual(
+            HomebrewVersionDisplay.fullTransition(for: package),
+            "1.214591.1,85cb5c02268829ab7605f76dfa13a4217159ca9f → "
+                + "1.22209.0,77c938bac27689d6df971289c10759e512785c73"
+        )
+    }
+
+    func testFormulaVersionDisplayPreservesCommas() {
+        XCTAssertEqual(
+            HomebrewVersionDisplay.compact("1.2,build", kind: .formula),
+            "1.2,build"
+        )
+    }
+
+    func testCaskVersionWithoutCommaIsUnchanged() {
+        XCTAssertEqual(
+            HomebrewVersionDisplay.compact("1.2.3", kind: .cask),
+            "1.2.3"
+        )
+    }
 }

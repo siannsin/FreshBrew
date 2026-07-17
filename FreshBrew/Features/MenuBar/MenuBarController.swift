@@ -179,16 +179,44 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private func addLastUpdateMenu(_ update: UpdateHistoryEntry) {
         let item = NSMenuItem(title: "Last Update", action: nil, keyEquivalent: "")
         let submenu = NSMenu(title: "Last Update")
+        let formulae = update.packages.filter { $0.kind == .formula }
+        let casks = update.packages.filter { $0.kind == .cask }
 
-        for package in update.packages {
-            submenu.addItem(actionItem(
-                "\(package.name) \(package.installedVersion)",
-                action: #selector(ignoreMenuItem)
-            ))
+        if !formulae.isEmpty {
+            addLastUpdateSection("Formulae", packages: formulae, to: submenu)
+        }
+
+        if !formulae.isEmpty, !casks.isEmpty {
+            submenu.addItem(.separator())
+        }
+
+        if !casks.isEmpty {
+            addLastUpdateSection("Casks", packages: casks, to: submenu)
         }
 
         item.submenu = submenu
         menu.addItem(item)
+    }
+
+    private func addLastUpdateSection(
+        _ title: String,
+        packages: [UpdatedPackage],
+        to menu: NSMenu
+    ) {
+        let heading = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        heading.isEnabled = false
+        menu.addItem(heading)
+
+        for package in packages {
+            let version = HomebrewVersionDisplay.compact(
+                package.installedVersion,
+                kind: package.kind
+            )
+            menu.addItem(actionItem(
+                "\(package.name) \(version)",
+                action: #selector(ignoreMenuItem)
+            ))
+        }
     }
 
     private func addSettingsMenu() {
