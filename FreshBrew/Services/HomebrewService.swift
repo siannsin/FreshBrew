@@ -1,21 +1,80 @@
 import Foundation
+import Network
+
+protocol NetworkAvailabilityChecking: Sendable {
+    func isNetworkAvailable() async -> Bool
+}
+
+struct SystemNetworkAvailabilityChecker: NetworkAvailabilityChecking {
+    func isNetworkAvailable() async -> Bool {
+        await withCheckedContinuation { continuation in
+            NetworkPathProbe(continuation: continuation).start()
+        }
+    }
+}
+
+private final class NetworkPathProbe: @unchecked Sendable {
+    private let monitor = NWPathMonitor()
+    private let queue = DispatchQueue(label: "net.siann.freshbrew.network-path")
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Bool, Never>?
+
+    init(continuation: CheckedContinuation<Bool, Never>) {
+        self.continuation = continuation
+    }
+
+    func start() {
+        monitor.pathUpdateHandler = { [self] path in
+            finish(isAvailable: path.status == .satisfied)
+        }
+        monitor.start(queue: queue)
+
+        // If the system cannot provide a path promptly, allow Homebrew to
+        // proceed and let the command deadline remain authoritative.
+        queue.asyncAfter(deadline: .now() + 1) { [self] in
+            finish(isAvailable: true)
+        }
+    }
+
+    private func finish(isAvailable: Bool) {
+        lock.lock()
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        guard let continuation else { return }
+
+        monitor.pathUpdateHandler = nil
+        monitor.cancel()
+        continuation.resume(returning: isAvailable)
+    }
+}
 
 actor HomebrewService {
     static let defaultExecutableURL = URL(fileURLWithPath: "/opt/homebrew/bin/brew")
+    static let metadataTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 60)
+    static let outdatedTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 30)
+    static let packageTimeoutPolicy = CommandTimeoutPolicy(
+        absoluteLimit: 30 * 60,
+        inactivityLimit: 5 * 60
+    )
+    static let cleanupTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 5 * 60)
 
     private let executableURL: URL
     private let runner: any CommandRunning
     private let executableIsAvailable: @Sendable (URL) -> Bool
+    private let networkAvailabilityChecker: any NetworkAvailabilityChecking
 
     init(
         executableURL: URL = HomebrewService.defaultExecutableURL,
         runner: any CommandRunning = SystemCommandRunner(),
+        networkAvailabilityChecker: any NetworkAvailabilityChecking = SystemNetworkAvailabilityChecker(),
         executableIsAvailable: @escaping @Sendable (URL) -> Bool = {
             FileManager.default.isExecutableFile(atPath: $0.path)
         }
     ) {
         self.executableURL = executableURL
         self.runner = runner
+        self.networkAvailabilityChecker = networkAvailabilityChecker
         self.executableIsAvailable = executableIsAvailable
     }
 
@@ -26,12 +85,19 @@ actor HomebrewService {
         try ensureExecutableIsAvailable()
 
         if refreshMetadata {
-            let refreshResult = try await run(arguments: ["update"])
+            try await ensureNetworkIsAvailable()
+            let refreshResult = try await run(
+                arguments: ["update"],
+                operation: "update metadata",
+                timeoutPolicy: Self.metadataTimeoutPolicy
+            )
             try requireSuccess(refreshResult, operation: "update metadata")
         }
 
         let outdatedResult = try await run(
-            arguments: Self.outdatedArguments(greedy: greedy)
+            arguments: Self.outdatedArguments(greedy: greedy),
+            operation: "check outdated packages",
+            timeoutPolicy: Self.outdatedTimeoutPolicy
         )
         try requireSuccess(outdatedResult, operation: "check outdated packages")
         return Self.parseOutdatedOutput(outdatedResult.standardOutput)
@@ -54,6 +120,7 @@ actor HomebrewService {
                 timestamp: Date()
             )
         }
+        try await ensureNetworkIsAvailable()
 
         let authorizationContext = try administratorPassword.map {
             try AdminAuthorizationContext.create(password: $0)
@@ -63,6 +130,7 @@ actor HomebrewService {
         let environment = authorizationContext?.environment ?? [:]
         var commandFailures: [HomebrewCommandFailure] = []
         var combinedUpgradeOutput = ""
+        var updateTimedOut = false
 
         onProgress?(UpdateProgress(
             stage: .preparing,
@@ -74,24 +142,34 @@ actor HomebrewService {
             let group = candidates.filter { $0.kind == kind }
             guard !group.isEmpty else { continue }
 
-            let result = try await run(
-                arguments: Self.upgradeArguments(for: group, greedy: greedy),
-                environment: environment,
-                onOutput: progressRelay(stage: .upgrading, onProgress: onProgress)
-            )
-            combinedUpgradeOutput += "\n" + result.combinedOutput
+            let operation = "upgrade \(kind.rawValue)s"
+            do {
+                let result = try await run(
+                    arguments: Self.upgradeArguments(for: group, greedy: greedy),
+                    environment: environment,
+                    operation: operation,
+                    timeoutPolicy: Self.packageTimeoutPolicy,
+                    onOutput: progressRelay(stage: .upgrading, onProgress: onProgress)
+                )
+                combinedUpgradeOutput += "\n" + result.combinedOutput
 
-            if result.exitCode != 0 {
-                commandFailures.append(HomebrewCommandFailure(
-                    operation: "upgrade \(kind.rawValue)s",
-                    exitCode: result.exitCode,
-                    output: result.combinedOutput
-                ))
+                if result.exitCode != 0 {
+                    commandFailures.append(HomebrewCommandFailure(
+                        operation: operation,
+                        exitCode: result.exitCode,
+                        output: result.combinedOutput
+                    ))
+                }
+            } catch let error as HomebrewError {
+                guard let failure = Self.timeoutFailure(from: error) else { throw error }
+                commandFailures.append(failure)
+                updateTimedOut = true
+                break
             }
         }
 
         let refusedNames = Set(Self.casksNeedingForcedReinstall(from: combinedUpgradeOutput))
-        let refusedCasks = candidates.filter {
+        let refusedCasks = updateTimedOut ? [] : candidates.filter {
             $0.kind == .cask && refusedNames.contains($0.name)
         }
 
@@ -102,17 +180,26 @@ actor HomebrewService {
                 message: "Reinstalling \(package.name)"
             ))
 
-            let reinstallResult = try await run(
-                arguments: ["reinstall", "--cask", "--force", package.name],
-                environment: environment,
-                onOutput: progressRelay(stage: .reinstalling, onProgress: onProgress)
-            )
-            if reinstallResult.exitCode != 0 {
-                commandFailures.append(HomebrewCommandFailure(
-                    operation: "force reinstall \(package.name)",
-                    exitCode: reinstallResult.exitCode,
-                    output: reinstallResult.combinedOutput
-                ))
+            let operation = "force reinstall \(package.name)"
+            do {
+                let reinstallResult = try await run(
+                    arguments: ["reinstall", "--cask", "--force", package.name],
+                    environment: environment,
+                    operation: operation,
+                    timeoutPolicy: Self.packageTimeoutPolicy,
+                    onOutput: progressRelay(stage: .reinstalling, onProgress: onProgress)
+                )
+                if reinstallResult.exitCode != 0 {
+                    commandFailures.append(HomebrewCommandFailure(
+                        operation: operation,
+                        exitCode: reinstallResult.exitCode,
+                        output: reinstallResult.combinedOutput
+                    ))
+                }
+            } catch let error as HomebrewError {
+                guard let failure = Self.timeoutFailure(from: error) else { throw error }
+                commandFailures.append(failure)
+                break
             }
         }
 
@@ -157,8 +244,13 @@ actor HomebrewService {
     func cleanup(deep: Bool) async throws -> CleanupResult {
         try ensureExecutableIsAvailable()
         let arguments = deep ? ["cleanup", "--prune=all"] : ["cleanup"]
-        let result = try await run(arguments: arguments)
-        try requireSuccess(result, operation: deep ? "deep cleanup" : "cleanup")
+        let operation = deep ? "deep cleanup" : "cleanup"
+        let result = try await run(
+            arguments: arguments,
+            operation: operation,
+            timeoutPolicy: Self.cleanupTimeoutPolicy
+        )
+        try requireSuccess(result, operation: operation)
         return CleanupResult(
             isDeepCleanup: deep,
             output: result.combinedOutput,
@@ -179,6 +271,7 @@ actor HomebrewService {
         }
 
         try ensureExecutableIsAvailable()
+        try await ensureNetworkIsAvailable()
         _ = try recoveryStore.removeBackups(
             olderThan: Date().addingTimeInterval(-7 * 24 * 60 * 60)
         )
@@ -199,6 +292,8 @@ actor HomebrewService {
             let result = try await run(
                 arguments: ["reinstall", "--cask", "--force", package.name],
                 environment: authorizationContext?.environment ?? [:],
+                operation: "recover cask \(package.name)",
+                timeoutPolicy: Self.packageTimeoutPolicy,
                 onOutput: progressRelay(stage: .reinstalling, onProgress: onProgress)
             )
             try requireSuccess(result, operation: "recover cask \(package.name)")
@@ -325,18 +420,53 @@ actor HomebrewService {
         }
     }
 
+    private func ensureNetworkIsAvailable() async throws {
+        guard await networkAvailabilityChecker.isNetworkAvailable() else {
+            throw HomebrewError.networkUnavailable
+        }
+    }
+
     private func run(
         arguments: [String],
         environment: [String: String] = [:],
+        operation: String,
+        timeoutPolicy: CommandTimeoutPolicy,
         onOutput: (@Sendable (String) -> Void)? = nil
     ) async throws -> CommandResult {
-        try await runner.run(
-            CommandRequest(
-                executableURL: executableURL,
-                arguments: arguments,
-                environment: environment
-            ),
-            onOutput: onOutput
+        do {
+            return try await runner.run(
+                CommandRequest(
+                    executableURL: executableURL,
+                    arguments: arguments,
+                    environment: environment,
+                    timeoutPolicy: timeoutPolicy
+                ),
+                onOutput: onOutput
+            )
+        } catch let error as CommandTimeoutError {
+            throw HomebrewError.timedOut(
+                operation: operation,
+                seconds: error.limit,
+                output: error.output
+            )
+        }
+    }
+
+    private nonisolated static func timeoutFailure(
+        from error: HomebrewError
+    ) -> HomebrewCommandFailure? {
+        guard case let .timedOut(operation, seconds, output) = error else {
+            return nil
+        }
+        let timeoutDescription = "FreshBrew stopped \(operation) after \(Int(seconds)) seconds."
+        let diagnosticOutput = [output, timeoutDescription]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        return HomebrewCommandFailure(
+            operation: operation,
+            exitCode: -1,
+            output: diagnosticOutput,
+            kind: .timeout
         )
     }
 

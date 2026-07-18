@@ -162,7 +162,11 @@ final class MenuBarModel: ObservableObject {
             await handleFailure(
                 error,
                 operation: "check updates",
-                status: "Check failed"
+                status: Self.failureStatus(
+                    for: error,
+                    fallback: "Check failed",
+                    timeout: "Check timed out"
+                )
             )
             await notificationService.postCheckFailure(
                 message: lastErrorMessage ?? "Homebrew could not complete the update check."
@@ -241,7 +245,11 @@ final class MenuBarModel: ObservableObject {
             await handleFailure(
                 error,
                 operation: deep ? "deep cleanup" : "cleanup",
-                status: "Cleanup failed"
+                status: Self.failureStatus(
+                    for: error,
+                    fallback: "Cleanup failed",
+                    timeout: "Cleanup timed out"
+                )
             )
             return nil
         }
@@ -380,7 +388,11 @@ final class MenuBarModel: ObservableObject {
                         await handleFailure(
                             error,
                             operation: "automatic cleanup",
-                            status: "Cleanup failed"
+                            status: Self.failureStatus(
+                                for: error,
+                                fallback: "Cleanup failed",
+                                timeout: "Cleanup timed out"
+                            )
                         )
                     }
                 } else {
@@ -393,8 +405,11 @@ final class MenuBarModel: ObservableObject {
                 )
             } else {
                 let failureCount = result.failures.count
-                statusMessage = "Update failed"
-                lastErrorMessage = "\(failureCount) update operation\(failureCount == 1 ? "" : "s") failed"
+                let didTimeOut = result.failures.contains { $0.kind == .timeout }
+                statusMessage = didTimeOut ? "Update timed out" : "Update failed"
+                lastErrorMessage = didTimeOut
+                    ? "A package update exceeded its time limit."
+                    : "\(failureCount) update operation\(failureCount == 1 ? "" : "s") failed"
                 for failure in result.failures {
                     try? await errorLogStore.record(
                         operation: failure.operation,
@@ -413,7 +428,11 @@ final class MenuBarModel: ObservableObject {
             await handleFailure(
                 error,
                 operation: "update packages",
-                status: "Update failed"
+                status: Self.failureStatus(
+                    for: error,
+                    fallback: "Update failed",
+                    timeout: "Update timed out"
+                )
             )
             return nil
         }
@@ -450,6 +469,29 @@ final class MenuBarModel: ObservableObject {
             return output
         case let .executableNotFound(url), let .invalidRecoveryTarget(url):
             return url.path
+        case .networkUnavailable:
+            return "No network connection is available."
+        case let .timedOut(operation, seconds, output):
+            let timeoutDescription = "FreshBrew stopped \(operation) after \(Int(seconds)) seconds."
+            return [output, timeoutDescription]
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+        }
+    }
+
+    private static func failureStatus(
+        for error: Error,
+        fallback: String,
+        timeout: String
+    ) -> String {
+        guard let homebrewError = error as? HomebrewError else { return fallback }
+        switch homebrewError {
+        case .networkUnavailable:
+            return "No network connection"
+        case .timedOut:
+            return timeout
+        default:
+            return fallback
         }
     }
 

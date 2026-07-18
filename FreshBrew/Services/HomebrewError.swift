@@ -6,6 +6,8 @@ enum HomebrewError: Error, Equatable, Sendable {
     case permissionRequired(String)
     case existingApplicationConflict(path: String, output: String)
     case invalidRecoveryTarget(URL)
+    case networkUnavailable
+    case timedOut(operation: String, seconds: TimeInterval, output: String)
 }
 
 extension HomebrewError: LocalizedError {
@@ -21,7 +23,20 @@ extension HomebrewError: LocalizedError {
             return "An existing app at \(path) is blocking the cask operation."
         case .invalidRecoveryTarget:
             return "The selected path is not a valid application bundle for cask recovery."
+        case .networkUnavailable:
+            return "No network connection is available."
+        case let .timedOut(operation, seconds, _):
+            return "\(operation.capitalized) timed out after \(Self.formattedDuration(seconds))."
         }
+    }
+
+    private static func formattedDuration(_ seconds: TimeInterval) -> String {
+        let roundedSeconds = Int(seconds.rounded())
+        if roundedSeconds.isMultiple(of: 60) {
+            let minutes = roundedSeconds / 60
+            return "\(minutes) minute\(minutes == 1 ? "" : "s")"
+        }
+        return "\(roundedSeconds) second\(roundedSeconds == 1 ? "" : "s")"
     }
 }
 

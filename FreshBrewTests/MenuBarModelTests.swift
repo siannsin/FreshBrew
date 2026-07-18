@@ -212,6 +212,35 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertEqual(model.statusMessage, "Update failed")
     }
 
+    func testTimedOutUpdateUsesSpecificStatusAndWritesDiagnosticLog() async {
+        let package = makePackage(named: "large-cask", kind: .cask)
+        let service = FakeHomebrewService(
+            updateResult: UpdateResult(
+                completedPackages: [],
+                remainingPackages: [package],
+                failures: [HomebrewCommandFailure(
+                    operation: "upgrade casks",
+                    exitCode: -1,
+                    output: "download stalled",
+                    kind: .timeout
+                )],
+                timestamp: Date(timeIntervalSince1970: 500)
+            )
+        )
+        let dependencies = makeDependencies(now: Date(timeIntervalSince1970: 500))
+        defer { dependencies.cleanUp() }
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        _ = await model.update(package: package)
+
+        XCTAssertEqual(model.statusMessage, "Update timed out")
+        XCTAssertEqual(model.lastErrorMessage, "A package update exceeded its time limit.")
+        let entries = try? await dependencies.errorLogStore.entries(
+            referenceDate: Date(timeIntervalSince1970: 500)
+        )
+        XCTAssertEqual(entries?.first?.output, "download stalled")
+    }
+
     func testFailedCheckKeepsPreviousPackagesAndWritesErrorLog() async {
         let package = makePackage(named: "ripgrep", kind: .formula)
         let service = FakeHomebrewService(checkResponses: [
@@ -306,6 +335,34 @@ final class MenuBarModelTests: XCTestCase {
 
         let failureMessages = await notifications.failureMessages()
         XCTAssertEqual(failureMessages, ["Homebrew could not complete the operation."])
+    }
+
+    func testTimedOutCheckUsesSpecificStatusNotificationAndLog() async {
+        let service = FakeHomebrewService(checkResponses: [
+            .failure(.timedOut(
+                operation: "update metadata",
+                seconds: 60,
+                output: "remote did not respond"
+            ))
+        ])
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies(now: Date(timeIntervalSince1970: 1_000))
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+
+        _ = await model.checkUpdates()
+
+        XCTAssertEqual(model.statusMessage, "Check timed out")
+        let failureMessages = await notifications.failureMessages()
+        XCTAssertEqual(failureMessages, ["Update Metadata timed out after 1 minute."])
+        let entries = try? await dependencies.errorLogStore.entries(
+            referenceDate: Date(timeIntervalSince1970: 1_000)
+        )
+        XCTAssertTrue(entries?.first?.output.contains("remote did not respond") == true)
     }
 
     func testPermissionFailureCanRetrySamePackagesWithCurrentGreedyMode() async {
