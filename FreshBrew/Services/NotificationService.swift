@@ -2,7 +2,7 @@ import Foundation
 import UserNotifications
 
 enum UpdateCleanupOutcome: Sendable, Equatable {
-    case completed
+    case completed(freedSpace: String?)
     case failed
 }
 
@@ -10,8 +10,11 @@ protocol NotificationServing: Sendable {
     func requestAuthorization() async
     func postUpdatesAvailable(count: Int) async
     func postCheckFailure(message: String) async
-    func postUpdateCompletion(
+    func postUpdateResult(
         updatedCount: Int,
+        remainingUpdateCount: Int,
+        hadFailures: Bool,
+        newlyAvailableCount: Int,
         cleanupOutcome: UpdateCleanupOutcome?
     ) async
 }
@@ -51,15 +54,21 @@ actor NotificationService: NotificationServing {
         try? await center.add(request)
     }
 
-    func postUpdateCompletion(
+    func postUpdateResult(
         updatedCount: Int,
+        remainingUpdateCount: Int,
+        hadFailures: Bool,
+        newlyAvailableCount: Int,
         cleanupOutcome: UpdateCleanupOutcome?
     ) async {
-        guard updatedCount > 0 else { return }
+        guard updatedCount > 0 || hadFailures else { return }
         let request = UNNotificationRequest(
-            identifier: "net.siann.freshbrew.update-completion-\(UUID().uuidString)",
-            content: Self.updateCompletionContent(
+            identifier: "net.siann.freshbrew.update-result-\(UUID().uuidString)",
+            content: Self.updateResultContent(
                 updatedCount: updatedCount,
+                remainingUpdateCount: remainingUpdateCount,
+                hadFailures: hadFailures,
+                newlyAvailableCount: newlyAvailableCount,
                 cleanupOutcome: cleanupOutcome
             ),
             trigger: nil
@@ -84,23 +93,49 @@ actor NotificationService: NotificationServing {
         return content
     }
 
-    nonisolated static func updateCompletionContent(
+    nonisolated static func updateResultContent(
         updatedCount: Int,
+        remainingUpdateCount: Int,
+        hadFailures: Bool,
+        newlyAvailableCount: Int,
         cleanupOutcome: UpdateCleanupOutcome?
     ) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
-        content.title = AppIdentity.displayName
-        let noun = updatedCount == 1 ? "package" : "packages"
-        var body = "\(updatedCount) \(noun) updated"
+        var details: [String] = []
+        if updatedCount > 0 {
+            let noun = updatedCount == 1 ? "package" : "packages"
+            details.append("\(updatedCount) \(noun) updated")
+        } else {
+            details.append("Update failed")
+        }
+
+        if hadFailures {
+            if remainingUpdateCount == 1 {
+                let subject = updatedCount > 0 ? "1" : "1 package"
+                details.append("\(subject) still needs an update")
+            } else if remainingUpdateCount > 1 {
+                let subject = updatedCount > 0
+                    ? "\(remainingUpdateCount)"
+                    : "\(remainingUpdateCount) packages"
+                details.append("\(subject) still need updates")
+            } else {
+                details.append("Some update operations failed")
+            }
+        } else if newlyAvailableCount > 0 {
+            let updateNoun = newlyAvailableCount == 1 ? "update" : "updates"
+            details.append("\(newlyAvailableCount) new \(updateNoun) available")
+        }
         switch cleanupOutcome {
-        case .completed:
-            body += " · Cleanup completed"
+        case let .completed(freedSpace):
+            if let freedSpace {
+                details.append("\(freedSpace) freed")
+            }
         case .failed:
-            body += " · Cleanup failed"
+            details.append("Cleanup failed")
         case nil:
             break
         }
-        content.body = body
+        content.body = details.joined(separator: " · ")
         content.sound = .default
         return content
     }
@@ -123,8 +158,11 @@ actor NoopNotificationService: NotificationServing {
     func requestAuthorization() async {}
     func postUpdatesAvailable(count: Int) async {}
     func postCheckFailure(message: String) async {}
-    func postUpdateCompletion(
+    func postUpdateResult(
         updatedCount: Int,
+        remainingUpdateCount: Int,
+        hadFailures: Bool,
+        newlyAvailableCount: Int,
         cleanupOutcome: UpdateCleanupOutcome?
     ) async {}
 }

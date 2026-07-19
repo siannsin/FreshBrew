@@ -70,6 +70,34 @@ final class HistoryGroupingTests: XCTestCase {
         )
     }
 
+    func testAvailableCaskVersionDisplayUsesPrimaryCommaSeparatedVersion() {
+        let package = HomebrewPackage(
+            name: "claude",
+            installedVersion: "1.22209.0,77c938bac27689c10759e512785c73",
+            availableVersion: "1.22209.3,babe11577dfefe3e209c06bd674628d862f0dbae",
+            kind: .cask
+        )
+
+        XCTAssertEqual(
+            HomebrewVersionDisplay.compactTransition(for: package),
+            "1.22209.0 → 1.22209.3"
+        )
+    }
+
+    func testAvailableCaskSecondaryVersionChangeUsesCompactTransition() {
+        let package = HomebrewPackage(
+            name: "chatgpt",
+            installedVersion: "2.2,old-revision",
+            availableVersion: "2.2,new-revision",
+            kind: .cask
+        )
+
+        XCTAssertEqual(
+            HomebrewVersionDisplay.compactTransition(for: package),
+            "2.2 → 2.2"
+        )
+    }
+
     func testFormulaVersionDisplayPreservesCommas() {
         XCTAssertEqual(
             HomebrewVersionDisplay.compact("1.2,build", kind: .formula),

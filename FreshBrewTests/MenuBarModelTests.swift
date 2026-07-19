@@ -113,7 +113,12 @@ final class MenuBarModelTests: XCTestCase {
                 remainingPackages: [],
                 failures: [],
                 timestamp: Date(timeIntervalSince1970: 500)
-            )
+            ),
+            cleanupResponses: [.success(CleanupResult(
+                isDeepCleanup: false,
+                output: "This operation has freed approximately 42MB of disk space.",
+                completedAt: Date(timeIntervalSince1970: 500)
+            ))]
         )
         let notifications = FakeNotificationService()
         let dependencies = makeDependencies()
@@ -132,9 +137,53 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertEqual(cleanupDeepValues, [false])
         XCTAssertEqual(
             completionValues,
-            [UpdateCompletion(updatedCount: 1, cleanupOutcome: .completed)]
+            [UpdateCompletion(
+                updatedCount: 1,
+                remainingUpdateCount: 0,
+                hadFailures: false,
+                newlyAvailableCount: 0,
+                cleanupOutcome: .completed(freedSpace: "42MB")
+            )]
         )
         XCTAssertEqual(model.statusMessage, "FreshBrew is ready")
+    }
+
+    func testSuccessfulUpdateReportsOnlyNewlyDiscoveredPackages() async {
+        let selectedPackage = makePackage(named: "ripgrep", kind: .formula)
+        let alreadyKnownPackage = makePackage(named: "stats", kind: .cask)
+        let newlyAvailablePackage = makePackage(named: "wget", kind: .formula)
+        let service = FakeHomebrewService(
+            checkResponses: [.packages([selectedPackage, alreadyKnownPackage])],
+            updateResult: UpdateResult(
+                completedPackages: [makeUpdatedPackage(from: selectedPackage)],
+                remainingPackages: [alreadyKnownPackage, newlyAvailablePackage],
+                failures: [],
+                timestamp: Date(timeIntervalSince1970: 500)
+            )
+        )
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+
+        _ = await model.checkUpdates()
+        _ = await model.update(package: selectedPackage)
+
+        let completionValues = await notifications.completions()
+        XCTAssertEqual(
+            completionValues,
+            [UpdateCompletion(
+                updatedCount: 1,
+                remainingUpdateCount: 2,
+                hadFailures: false,
+                newlyAvailableCount: 1,
+                cleanupOutcome: nil
+            )]
+        )
     }
 
     func testAutomaticCleanupFailureIsReportedWithSuccessfulUpdate() async {
@@ -168,7 +217,13 @@ final class MenuBarModelTests: XCTestCase {
         let completionValues = await notifications.completions()
         XCTAssertEqual(
             completionValues,
-            [UpdateCompletion(updatedCount: 1, cleanupOutcome: .failed)]
+            [UpdateCompletion(
+                updatedCount: 1,
+                remainingUpdateCount: 0,
+                hadFailures: false,
+                newlyAvailableCount: 0,
+                cleanupOutcome: .failed
+            )]
         )
         XCTAssertEqual(model.statusMessage, "Cleanup failed")
         XCTAssertNotNil(model.lastErrorMessage)
@@ -178,10 +233,11 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertEqual(entries?.first?.operation, "automatic cleanup")
     }
 
-    func testPartialUpdateDoesNotRunAutomaticCleanupOrPostCompletion() async {
+    func testPartialUpdateSkipsAutomaticCleanupAndPostsResult() async {
         let completed = makePackage(named: "ripgrep", kind: .formula)
         let remaining = makePackage(named: "stats", kind: .cask)
         let service = FakeHomebrewService(
+            checkResponses: [.packages([completed, remaining])],
             updateResult: UpdateResult(
                 completedPackages: [makeUpdatedPackage(from: completed)],
                 remainingPackages: [remaining],
@@ -203,13 +259,359 @@ final class MenuBarModelTests: XCTestCase {
         )
         model.autoCleanupEnabled = true
 
-        _ = await model.update(package: completed)
+        _ = await model.checkUpdates()
+        _ = await model.updateAll()
 
         let cleanupDeepValues = await service.recordedCleanupDeepValues()
         let completionValues = await notifications.completions()
         XCTAssertTrue(cleanupDeepValues.isEmpty)
-        XCTAssertTrue(completionValues.isEmpty)
+        XCTAssertEqual(
+            completionValues,
+            [UpdateCompletion(
+                updatedCount: 1,
+                remainingUpdateCount: 1,
+                hadFailures: true,
+                newlyAvailableCount: 0,
+                cleanupOutcome: nil
+            )]
+        )
         XCTAssertEqual(model.statusMessage, "Update failed")
+    }
+
+    func testPermissionResultWaitsForAdministratorRetryBeforePostingNotification() async {
+        let package = makePackage(named: "stats", kind: .cask)
+        let permissionFailure = HomebrewCommandFailure(
+            operation: "upgrade casks",
+            exitCode: 1,
+            output: "sudo: a password is required"
+        )
+        let service = FakeHomebrewService(
+            checkResponses: [.packages([package])],
+            updateResponses: [
+                .success(UpdateResult(
+                    completedPackages: [],
+                    remainingPackages: [package],
+                    failures: [permissionFailure],
+                    timestamp: Date(timeIntervalSince1970: 500)
+                )),
+                .success(UpdateResult(
+                    completedPackages: [makeUpdatedPackage(from: package)],
+                    remainingPackages: [],
+                    failures: [],
+                    timestamp: Date(timeIntervalSince1970: 501)
+                ))
+            ]
+        )
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+
+        _ = await model.checkUpdates()
+        _ = await model.updateAll()
+
+        XCTAssertTrue(model.administratorAccessRequired)
+        let preRetryCompletions = await notifications.completions()
+        XCTAssertTrue(preRetryCompletions.isEmpty)
+
+        _ = await model.retryLastUpdate(administratorPassword: "secret")
+
+        XCTAssertFalse(model.administratorAccessRequired)
+        let postRetryCompletions = await notifications.completions()
+        XCTAssertEqual(
+            postRetryCompletions,
+            [UpdateCompletion(
+                updatedCount: 1,
+                remainingUpdateCount: 0,
+                hadFailures: false,
+                newlyAvailableCount: 0,
+                cleanupOutcome: nil
+            )]
+        )
+    }
+
+    func testAdministratorRetryPreservesInitialNewPackageBaseline() async {
+        let package = makePackage(named: "stats", kind: .cask)
+        let newlyAvailablePackage = makePackage(named: "wget", kind: .formula)
+        let permissionFailure = HomebrewCommandFailure(
+            operation: "upgrade casks",
+            exitCode: 1,
+            output: "sudo: a password is required"
+        )
+        let service = FakeHomebrewService(
+            checkResponses: [.packages([package])],
+            updateResponses: [
+                .success(UpdateResult(
+                    completedPackages: [],
+                    remainingPackages: [package, newlyAvailablePackage],
+                    failures: [permissionFailure],
+                    timestamp: Date(timeIntervalSince1970: 500)
+                )),
+                .success(UpdateResult(
+                    completedPackages: [makeUpdatedPackage(from: package)],
+                    remainingPackages: [newlyAvailablePackage],
+                    failures: [],
+                    timestamp: Date(timeIntervalSince1970: 501)
+                ))
+            ]
+        )
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+
+        _ = await model.checkUpdates()
+        _ = await model.updateAll()
+        _ = await model.retryLastUpdate(administratorPassword: "secret")
+
+        let completionValues = await notifications.completions()
+        XCTAssertEqual(
+            completionValues,
+            [UpdateCompletion(
+                updatedCount: 1,
+                remainingUpdateCount: 1,
+                hadFailures: false,
+                newlyAvailableCount: 1,
+                cleanupOutcome: nil
+            )]
+        )
+    }
+
+    func testAdministratorRetryNotificationIncludesEarlierCompletedPackages() async {
+        let formula = makePackage(named: "ripgrep", kind: .formula)
+        let cask = makePackage(named: "stats", kind: .cask)
+        let permissionFailure = HomebrewCommandFailure(
+            operation: "upgrade casks",
+            exitCode: 1,
+            output: "sudo: a password is required"
+        )
+        let service = FakeHomebrewService(
+            checkResponses: [.packages([formula, cask])],
+            updateResponses: [
+                .success(UpdateResult(
+                    completedPackages: [makeUpdatedPackage(from: formula)],
+                    remainingPackages: [cask],
+                    failures: [permissionFailure],
+                    timestamp: Date(timeIntervalSince1970: 500)
+                )),
+                .success(UpdateResult(
+                    completedPackages: [makeUpdatedPackage(from: cask)],
+                    remainingPackages: [],
+                    failures: [],
+                    timestamp: Date(timeIntervalSince1970: 501)
+                ))
+            ]
+        )
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+        let coordinator = UpdateActionCoordinator(
+            model: model,
+            passwordPrompt: FakeAdminPasswordPrompt(passwords: ["secret"])
+        )
+
+        _ = await model.checkUpdates()
+        await coordinator.updateAll()
+
+        let completionValues = await notifications.completions()
+        XCTAssertEqual(
+            completionValues,
+            [UpdateCompletion(
+                updatedCount: 2,
+                remainingUpdateCount: 0,
+                hadFailures: false,
+                newlyAvailableCount: 0,
+                cleanupOutcome: nil
+            )]
+        )
+    }
+
+    func testThreeFailedPasswordAttemptsPostFinalRemainingUpdateNotification() async {
+        let package = makePackage(named: "stats", kind: .cask)
+        let permissionFailure = HomebrewCommandFailure(
+            operation: "upgrade casks",
+            exitCode: 1,
+            output: "sudo: a password is required"
+        )
+        let permissionResponse: Result<UpdateResult, HomebrewError> = .success(UpdateResult(
+            completedPackages: [],
+            remainingPackages: [package],
+            failures: [permissionFailure],
+            timestamp: Date(timeIntervalSince1970: 500)
+        ))
+        let service = FakeHomebrewService(
+            checkResponses: [.packages([package])],
+            updateResponses: Array(repeating: permissionResponse, count: 4)
+        )
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+        let coordinator = UpdateActionCoordinator(
+            model: model,
+            passwordPrompt: FakeAdminPasswordPrompt(
+                passwords: ["wrong-1", "wrong-2", "wrong-3"]
+            )
+        )
+
+        _ = await model.checkUpdates()
+        await coordinator.updateAll()
+
+        let completionValues = await notifications.completions()
+        let passwords = await service.recordedAdministratorPasswords()
+        XCTAssertFalse(model.administratorAccessRequired)
+        XCTAssertEqual(passwords, [nil, "wrong-1", "wrong-2", "wrong-3"])
+        XCTAssertEqual(
+            completionValues,
+            [UpdateCompletion(
+                updatedCount: 0,
+                remainingUpdateCount: 1,
+                hadFailures: true,
+                newlyAvailableCount: 0,
+                cleanupOutcome: nil
+            )]
+        )
+    }
+
+    func testCancellingPasswordPromptReportsEarlierCompletedPackages() async {
+        let formula = makePackage(named: "ripgrep", kind: .formula)
+        let cask = makePackage(named: "stats", kind: .cask)
+        let permissionFailure = HomebrewCommandFailure(
+            operation: "upgrade casks",
+            exitCode: 1,
+            output: "sudo: a password is required"
+        )
+        let service = FakeHomebrewService(
+            checkResponses: [.packages([formula, cask])],
+            updateResult: UpdateResult(
+                completedPackages: [makeUpdatedPackage(from: formula)],
+                remainingPackages: [cask],
+                failures: [permissionFailure],
+                timestamp: Date(timeIntervalSince1970: 500)
+            )
+        )
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+        let coordinator = UpdateActionCoordinator(
+            model: model,
+            passwordPrompt: FakeAdminPasswordPrompt(passwords: [])
+        )
+
+        _ = await model.checkUpdates()
+        await coordinator.updateAll()
+
+        let completionValues = await notifications.completions()
+        XCTAssertFalse(model.administratorAccessRequired)
+        XCTAssertEqual(
+            completionValues,
+            [UpdateCompletion(
+                updatedCount: 1,
+                remainingUpdateCount: 1,
+                hadFailures: true,
+                newlyAvailableCount: 0,
+                cleanupOutcome: nil
+            )]
+        )
+    }
+
+    func testCancellingPasswordPromptWithoutSuccessPostsFailureNotification() async {
+        let package = makePackage(named: "stats", kind: .cask)
+        let permissionFailure = HomebrewCommandFailure(
+            operation: "upgrade casks",
+            exitCode: 1,
+            output: "sudo: a password is required"
+        )
+        let service = FakeHomebrewService(
+            checkResponses: [.packages([package])],
+            updateResult: UpdateResult(
+                completedPackages: [],
+                remainingPackages: [package],
+                failures: [permissionFailure],
+                timestamp: Date(timeIntervalSince1970: 500)
+            )
+        )
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+        let coordinator = UpdateActionCoordinator(
+            model: model,
+            passwordPrompt: FakeAdminPasswordPrompt(passwords: [])
+        )
+
+        _ = await model.checkUpdates()
+        await coordinator.updateAll()
+
+        let completionValues = await notifications.completions()
+        XCTAssertFalse(model.administratorAccessRequired)
+        XCTAssertEqual(
+            completionValues,
+            [UpdateCompletion(
+                updatedCount: 0,
+                remainingUpdateCount: 1,
+                hadFailures: true,
+                newlyAvailableCount: 0,
+                cleanupOutcome: nil
+            )]
+        )
+    }
+
+    func testThrownUpdateFailurePostsFinalFailureNotification() async {
+        let package = makePackage(named: "ripgrep", kind: .formula)
+        let service = FakeHomebrewService(
+            checkResponses: [.packages([package])],
+            updateResponses: [.failure(.networkUnavailable)]
+        )
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+
+        _ = await model.checkUpdates()
+        _ = await model.updateAll()
+
+        let completionValues = await notifications.completions()
+        XCTAssertEqual(
+            completionValues,
+            [UpdateCompletion(
+                updatedCount: 0,
+                remainingUpdateCount: 1,
+                hadFailures: true,
+                newlyAvailableCount: 0,
+                cleanupOutcome: nil
+            )]
+        )
     }
 
     func testTimedOutUpdateUsesSpecificStatusAndWritesDiagnosticLog() async {
@@ -765,6 +1167,9 @@ private actor FakeHomebrewService: HomebrewServicing {
 
 private struct UpdateCompletion: Equatable, Sendable {
     let updatedCount: Int
+    let remainingUpdateCount: Int
+    let hadFailures: Bool
+    let newlyAvailableCount: Int
     let cleanupOutcome: UpdateCleanupOutcome?
 }
 
@@ -784,13 +1189,19 @@ private actor FakeNotificationService: NotificationServing {
         failures.append(message)
     }
 
-    func postUpdateCompletion(
+    func postUpdateResult(
         updatedCount: Int,
+        remainingUpdateCount: Int,
+        hadFailures: Bool,
+        newlyAvailableCount: Int,
         cleanupOutcome: UpdateCleanupOutcome?
     ) async {
-        guard updatedCount > 0 else { return }
+        guard updatedCount > 0 || hadFailures else { return }
         completionValues.append(UpdateCompletion(
             updatedCount: updatedCount,
+            remainingUpdateCount: remainingUpdateCount,
+            hadFailures: hadFailures,
+            newlyAvailableCount: newlyAvailableCount,
             cleanupOutcome: cleanupOutcome
         ))
     }
@@ -818,6 +1229,20 @@ private actor SleepRecorder {
 
     func recordedValues() -> [TimeInterval] {
         values
+    }
+}
+
+@MainActor
+private final class FakeAdminPasswordPrompt: AdminPasswordPrompting {
+    private var passwords: [String]
+
+    init(passwords: [String]) {
+        self.passwords = passwords
+    }
+
+    func requestPassword() async -> String? {
+        guard !passwords.isEmpty else { return nil }
+        return passwords.removeFirst()
     }
 }
 

@@ -29,9 +29,15 @@ final class UpdateActionCoordinator {
     private func retryWithAdministratorAccessIfNeeded() async {
         var attempt = 0
         while model.administratorAccessRequired, attempt < maximumPasswordAttempts {
-            guard let password = await passwordPrompt.requestPassword() else { return }
+            guard let password = await passwordPrompt.requestPassword() else {
+                await model.cancelAdministratorRetry()
+                return
+            }
             attempt += 1
             _ = await model.retryLastUpdate(administratorPassword: password)
+        }
+        if model.administratorAccessRequired {
+            await model.finishAdministratorRetryAfterFailure()
         }
     }
 }

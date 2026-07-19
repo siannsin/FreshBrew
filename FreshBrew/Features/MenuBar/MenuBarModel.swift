@@ -90,6 +90,8 @@ final class MenuBarModel: ObservableObject {
     private var pendingUnlockCheckTask: Task<Void, Never>?
     private var periodicCheckTask: Task<Void, Never>?
     private var lastAttemptedPackages: [HomebrewPackage] = []
+    private var pendingUpdateKnownPackageIDs: Set<String>?
+    private var pendingUpdatedPackageIDs = Set<String>()
 
     init(
         homebrewService: any HomebrewServicing = HomebrewService(),
@@ -198,6 +200,7 @@ final class MenuBarModel: ObservableObject {
         let retryPackages = lastAttemptedPackages.filter { remainingIDs.contains($0.id) }
         guard !retryPackages.isEmpty else {
             administratorAccessRequired = false
+            resetPendingUpdateWorkflow()
             return nil
         }
         return await update(
@@ -205,6 +208,18 @@ final class MenuBarModel: ObservableObject {
             administratorPassword: administratorPassword,
             isAdministratorRetry: true
         )
+    }
+
+    func finishAdministratorRetryAfterFailure() async {
+        guard administratorAccessRequired else { return }
+        statusMessage = "Update failed"
+        await finalizePendingAdministratorWorkflow()
+    }
+
+    func cancelAdministratorRetry() async {
+        guard administratorAccessRequired else { return }
+        statusMessage = "Update failed"
+        await finalizePendingAdministratorWorkflow()
     }
 
     func setLaunchAtLoginEnabled(_ enabled: Bool) {
@@ -330,9 +345,13 @@ final class MenuBarModel: ObservableObject {
         isAdministratorRetry: Bool = false
     ) async -> UpdateResult? {
         guard !isRunning, !packages.isEmpty else { return nil }
+        let currentKnownPackageIDs = Set((availablePackages + packages).map(\.id))
         if !isAdministratorRetry {
             lastAttemptedPackages = packages
+            pendingUpdateKnownPackageIDs = currentKnownPackageIDs
+            pendingUpdatedPackageIDs = []
         }
+        let knownPackageIDs = pendingUpdateKnownPackageIDs ?? currentKnownPackageIDs
         administratorAccessRequired = false
         activity = .updating
         statusMessage = "Updating \(packages.count) package\(packages.count == 1 ? "" : "s")…"
@@ -342,6 +361,9 @@ final class MenuBarModel: ObservableObject {
         defer {
             activity = .idle
             progress = nil
+            if !administratorAccessRequired {
+                resetPendingUpdateWorkflow()
+            }
         }
 
         do {
@@ -356,6 +378,12 @@ final class MenuBarModel: ObservableObject {
                 }
             )
             availablePackages = result.remainingPackages
+            pendingUpdatedPackageIDs.formUnion(result.completedPackages.map(\.id))
+            let updatedCount = pendingUpdatedPackageIDs.count
+            let newlyAvailableCount = visiblePackages.filter {
+                !knownPackageIDs.contains($0.id)
+            }.count
+            let remainingUpdateCount = visiblePackages.count
             administratorAccessRequired = result.failures.contains { failure in
                 if case .permissionRequired = HomebrewError.classified(
                     operation: failure.operation,
@@ -376,12 +404,14 @@ final class MenuBarModel: ObservableObject {
 
             if result.failures.isEmpty {
                 var cleanupOutcome: UpdateCleanupOutcome?
-                if autoCleanupEnabled, !result.completedPackages.isEmpty {
+                if autoCleanupEnabled, updatedCount > 0 {
                     activity = .cleaning
                     statusMessage = "Cleaning up…"
                     do {
-                        _ = try await homebrewService.cleanup(deep: false)
-                        cleanupOutcome = .completed
+                        let cleanupResult = try await homebrewService.cleanup(deep: false)
+                        cleanupOutcome = .completed(
+                            freedSpace: cleanupResult.freedSpaceDescription
+                        )
                         statusMessage = "FreshBrew is ready"
                     } catch {
                         cleanupOutcome = .failed
@@ -399,8 +429,11 @@ final class MenuBarModel: ObservableObject {
                     statusMessage = "FreshBrew is ready"
                 }
 
-                await notificationService.postUpdateCompletion(
-                    updatedCount: result.completedPackages.count,
+                await notificationService.postUpdateResult(
+                    updatedCount: updatedCount,
+                    remainingUpdateCount: remainingUpdateCount,
+                    hadFailures: false,
+                    newlyAvailableCount: newlyAvailableCount,
                     cleanupOutcome: cleanupOutcome
                 )
             } else {
@@ -417,13 +450,26 @@ final class MenuBarModel: ObservableObject {
                         timestamp: result.timestamp
                     )
                 }
+                if !administratorAccessRequired {
+                    await notificationService.postUpdateResult(
+                        updatedCount: updatedCount,
+                        remainingUpdateCount: remainingUpdateCount,
+                        hadFailures: true,
+                        newlyAvailableCount: newlyAvailableCount,
+                        cleanupOutcome: nil
+                    )
+                }
             }
 
             return result
         } catch {
+            let requiresAdministratorAccess: Bool
             if let homebrewError = error as? HomebrewError,
                case .permissionRequired = homebrewError {
+                requiresAdministratorAccess = true
                 administratorAccessRequired = true
+            } else {
+                requiresAdministratorAccess = false
             }
             await handleFailure(
                 error,
@@ -434,8 +480,42 @@ final class MenuBarModel: ObservableObject {
                     timeout: "Update timed out"
                 )
             )
+            if !requiresAdministratorAccess {
+                await notificationService.postUpdateResult(
+                    updatedCount: pendingUpdatedPackageIDs.count,
+                    remainingUpdateCount: visiblePackages.count,
+                    hadFailures: true,
+                    newlyAvailableCount: visiblePackages.filter {
+                        !knownPackageIDs.contains($0.id)
+                    }.count,
+                    cleanupOutcome: nil
+                )
+            }
             return nil
         }
+    }
+
+    private func resetPendingUpdateWorkflow() {
+        pendingUpdateKnownPackageIDs = nil
+        pendingUpdatedPackageIDs = []
+    }
+
+    private func finalizePendingAdministratorWorkflow() async {
+        let knownPackageIDs = pendingUpdateKnownPackageIDs ?? []
+        let newlyAvailableCount = visiblePackages.filter {
+            !knownPackageIDs.contains($0.id)
+        }.count
+        let updatedCount = pendingUpdatedPackageIDs.count
+
+        administratorAccessRequired = false
+        await notificationService.postUpdateResult(
+            updatedCount: updatedCount,
+            remainingUpdateCount: visiblePackages.count,
+            hadFailures: true,
+            newlyAvailableCount: newlyAvailableCount,
+            cleanupOutcome: nil
+        )
+        resetPendingUpdateWorkflow()
     }
 
     private func handleFailure(

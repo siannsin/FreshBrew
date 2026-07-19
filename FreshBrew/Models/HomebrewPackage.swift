@@ -44,6 +44,12 @@ enum HomebrewVersionDisplay {
             + "\(compact(package.installedVersion, kind: package.kind))"
     }
 
+    static func compactTransition(for package: HomebrewPackage) -> String {
+        let installedVersion = compact(package.installedVersion, kind: package.kind)
+        let availableVersion = compact(package.availableVersion, kind: package.kind)
+        return "\(installedVersion) → \(availableVersion)"
+    }
+
     static func fullTransition(for package: UpdatedPackage) -> String {
         "\(package.previousVersion) → \(package.installedVersion)"
     }

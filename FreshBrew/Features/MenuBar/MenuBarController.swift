@@ -140,7 +140,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             let packageMenu = NSMenu(title: package.name)
 
             let versionItem = NSMenuItem(
-                title: "\(package.installedVersion) → \(package.availableVersion)",
+                title: HomebrewVersionDisplay.compactTransition(for: package),
                 action: nil,
                 keyEquivalent: ""
             )
