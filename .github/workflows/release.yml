@@ -1,0 +1,43 @@
+name: Release DMG
+
+on:
+  push:
+    tags:
+      - "v[0-9]*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: macos-15
+
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v4
+
+      - name: Run tests
+        run: |
+          xcodebuild test \
+            -project FreshBrew.xcodeproj \
+            -scheme FreshBrew \
+            -destination 'platform=macOS' \
+            -derivedDataPath /private/tmp/freshbrew-derived-data \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Build DMG
+        run: ./script/build_dmg.sh "$GITHUB_REF_NAME"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          gh release create "$RELEASE_TAG" \
+            "dist/FreshBrew-$VERSION-arm64.dmg" \
+            "dist/FreshBrew-$VERSION-arm64.dmg.sha256" \
+            --verify-tag \
+            --title "FreshBrew $VERSION" \
+            --generate-notes

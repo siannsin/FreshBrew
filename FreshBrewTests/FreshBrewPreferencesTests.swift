@@ -3,19 +3,14 @@ import XCTest
 @testable import FreshBrew
 
 final class FreshBrewPreferencesTests: XCTestCase {
-    private var suiteName: String!
-    private var defaults: UserDefaults!
+    private var defaults: InMemoryPreferencesStore!
 
     override func setUp() {
-        suiteName = "net.siann.freshbrew.tests.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
-        defaults.removePersistentDomain(forName: suiteName)
+        defaults = InMemoryPreferencesStore()
     }
 
     override func tearDown() {
-        defaults.removePersistentDomain(forName: suiteName)
         defaults = nil
-        suiteName = nil
     }
 
     func testFreshDomainDefaultsToGreedyOffAndAfterUnlock() {

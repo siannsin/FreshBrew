@@ -1008,14 +1008,10 @@ final class MenuBarModelTests: XCTestCase {
     }
 
     private func makeDependencies(now: Date = Date(timeIntervalSince1970: 10_000)) -> ModelDependencies {
-        let suiteName = "net.siann.freshbrew.tests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defaults.removePersistentDomain(forName: suiteName)
+        let defaults = InMemoryPreferencesStore()
         let logDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         return ModelDependencies(
-            suiteName: suiteName,
-            defaults: defaults,
             preferences: FreshBrewPreferences(defaults: defaults),
             historyStore: UpdateHistoryStore(defaults: defaults),
             errorLogStore: HomebrewErrorLogStore(
@@ -1060,8 +1056,6 @@ final class MenuBarModelTests: XCTestCase {
 }
 
 private struct ModelDependencies {
-    let suiteName: String
-    let defaults: UserDefaults
     let preferences: FreshBrewPreferences
     let historyStore: UpdateHistoryStore
     let errorLogStore: HomebrewErrorLogStore
@@ -1069,7 +1063,6 @@ private struct ModelDependencies {
     let referenceDate: Date
 
     func cleanUp() {
-        defaults.removePersistentDomain(forName: suiteName)
         try? FileManager.default.removeItem(at: logDirectory)
     }
 }

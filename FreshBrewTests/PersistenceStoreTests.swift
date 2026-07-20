@@ -4,9 +4,7 @@ import XCTest
 
 final class PersistenceStoreTests: XCTestCase {
     func testHistoryStorePersistsNewestEntryFirst() {
-        let suiteName = "net.siann.freshbrew.tests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = InMemoryPreferencesStore()
         let store = UpdateHistoryStore(defaults: defaults)
         let firstDate = Date(timeIntervalSince1970: 100)
         let secondDate = Date(timeIntervalSince1970: 200)

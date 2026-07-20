@@ -3,12 +3,12 @@ import Foundation
 final class UpdateHistoryStore: @unchecked Sendable {
     private static let key = "updateHistory"
 
-    private let defaults: UserDefaults
+    private let defaults: any PreferencesStoring
     private let lock = NSLock()
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: any PreferencesStoring = UserDefaults.standard) {
         self.defaults = defaults
     }
 
