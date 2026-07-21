@@ -26,6 +26,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
         if let button = statusItem.button {
             statusIconAnimator = StatusIconAnimator(button: button)
+            statusIconAnimator?.setState(
+                activity: model.activity,
+                hasAvailableUpdates: !model.visiblePackages.isEmpty
+            )
             button.toolTip = AppIdentity.displayName
         }
 
@@ -68,7 +72,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.isModelRefreshScheduled = false
-            self.statusIconAnimator?.setActivity(self.model.activity)
+            self.statusIconAnimator?.setState(
+                activity: self.model.activity,
+                hasAvailableUpdates: !self.model.visiblePackages.isEmpty
+            )
             if self.isMenuOpen {
                 self.rebuildMenu()
                 self.menu.update()

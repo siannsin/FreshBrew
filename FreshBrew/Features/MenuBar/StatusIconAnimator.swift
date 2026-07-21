@@ -4,9 +4,14 @@ import Symbols
 
 @MainActor
 final class StatusIconAnimator {
+    private struct PresentationState: Equatable {
+        let activity: MenuBarModel.Activity
+        let hasAvailableUpdates: Bool
+    }
+
     private weak var button: NSStatusBarButton?
     private let animatedImageView = PassThroughImageView()
-    private var currentActivity: MenuBarModel.Activity?
+    private var currentState: PresentationState?
 
     init(button: NSStatusBarButton) {
         self.button = button
@@ -26,12 +31,16 @@ final class StatusIconAnimator {
             animatedImageView.heightAnchor.constraint(equalToConstant: 16)
         ])
 
-        setActivity(.idle)
+        setState(activity: .idle, hasAvailableUpdates: false)
     }
 
-    func setActivity(_ activity: MenuBarModel.Activity) {
-        guard activity != currentActivity else { return }
-        currentActivity = activity
+    func setState(activity: MenuBarModel.Activity, hasAvailableUpdates: Bool) {
+        let state = PresentationState(
+            activity: activity,
+            hasAvailableUpdates: hasAvailableUpdates
+        )
+        guard state != currentState else { return }
+        currentState = state
         stopAnimation()
 
         switch activity {
@@ -42,19 +51,20 @@ final class StatusIconAnimator {
             showAnimatedSymbol("arrow.down", weight: .semibold)
             startUpdatingAnimation()
         case .idle, .cleaning:
-            showIdleIcon()
+            showIdleIcon(hasAvailableUpdates: hasAvailableUpdates)
         }
     }
 
     func stop() {
         stopAnimation()
         animatedImageView.removeFromSuperview()
-        currentActivity = nil
+        currentState = nil
     }
 
-    private func showIdleIcon() {
+    private func showIdleIcon(hasAvailableUpdates: Bool) {
         animatedImageView.isHidden = true
-        let image = NSImage(named: "MenuBarIcon")?.copy() as? NSImage
+        let assetName = hasAvailableUpdates ? "MenuBarUpdateIcon" : "MenuBarIcon"
+        let image = NSImage(named: assetName)?.copy() as? NSImage
         image?.isTemplate = true
         image?.size = NSSize(width: 18, height: 18)
         button?.image = image ?? symbol("leaf.fill", weight: .regular)
