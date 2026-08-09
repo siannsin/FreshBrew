@@ -20,6 +20,7 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var statusMessage = "FreshBrew is ready"
     @Published private(set) var lastHomebrewCheckDate: Date?
     @Published private(set) var lastErrorMessage: String?
+    @Published private(set) var packageHomepageErrorMessage: String?
     @Published private(set) var administratorAccessRequired = false
     @Published private(set) var sessionSkippedPackageIDs = Set<String>()
     @Published private(set) var rememberedSkippedPackageIDs: Set<String>
@@ -32,6 +33,7 @@ final class MenuBarModel: ObservableObject {
             sessionSkippedPackageIDs = []
             lastHomebrewCheckDate = nil
             preferences.lastHomebrewCheckDate = nil
+            packageHomepageErrorMessage = nil
             statusMessage = "FreshBrew is ready"
         }
     }
@@ -80,6 +82,7 @@ final class MenuBarModel: ObservableObject {
     private let homebrewService: any HomebrewServicing
     private let preferences: FreshBrewPreferences
     private let historyStore: UpdateHistoryStore
+    private let packageHomepageStore: PackageHomepageStore
     private let errorLogStore: HomebrewErrorLogStore
     private let notificationService: any NotificationServing
     private let launchAtLoginService: any LaunchAtLoginServicing
@@ -99,6 +102,7 @@ final class MenuBarModel: ObservableObject {
         homebrewService: any HomebrewServicing = HomebrewService(),
         preferences: FreshBrewPreferences = FreshBrewPreferences(),
         historyStore: UpdateHistoryStore = UpdateHistoryStore(),
+        packageHomepageStore: PackageHomepageStore = PackageHomepageStore(),
         errorLogStore: HomebrewErrorLogStore = HomebrewErrorLogStore(),
         notificationService: any NotificationServing = NoopNotificationService(),
         launchAtLoginService: (any LaunchAtLoginServicing)? = nil,
@@ -112,6 +116,7 @@ final class MenuBarModel: ObservableObject {
         self.homebrewService = homebrewService
         self.preferences = preferences
         self.historyStore = historyStore
+        self.packageHomepageStore = packageHomepageStore
         self.errorLogStore = errorLogStore
         self.notificationService = notificationService
         let resolvedLaunchAtLoginService = launchAtLoginService ?? LaunchAtLoginService()
@@ -126,7 +131,10 @@ final class MenuBarModel: ObservableObject {
         autoCleanupEnabled = preferences.autoCleanupEnabled
         launchAtLoginEnabled = resolvedLaunchAtLoginService.isEnabled
         rememberedSkippedPackageIDs = preferences.rememberedSkippedPackageIDs
-        updateHistory = historyStore.load()
+        updateHistory = Self.attachingHomepageURLs(
+            to: historyStore.load(),
+            store: packageHomepageStore
+        )
         lastHomebrewCheckDate = preferences.lastHomebrewCheckDate
         preferences.launchAtLoginEnabled = launchAtLoginEnabled
     }
@@ -144,6 +152,7 @@ final class MenuBarModel: ObservableObject {
         progress = nil
         statusMessage = "Checking updates…"
         lastErrorMessage = nil
+        packageHomepageErrorMessage = nil
         let checkDate = now()
         lastHomebrewCheckDate = checkDate
         preferences.lastHomebrewCheckDate = checkDate
@@ -158,7 +167,9 @@ final class MenuBarModel: ObservableObject {
                 greedy: greedyModeEnabled,
                 refreshMetadata: true
             )
-            availablePackages = packages
+            let homepageURLs = await homebrewService.packageHomepageURLs(for: packages)
+            packageHomepageStore.save(homepageURLs)
+            availablePackages = attachHomepageURLs(to: packages)
             sessionSkippedPackageIDs = []
             statusMessage = "FreshBrew is ready"
             if notifyIfAvailable {
@@ -242,6 +253,18 @@ final class MenuBarModel: ObservableObject {
         }
     }
 
+    func reportPackageHomepageOpenFailure() {
+        packageHomepageErrorMessage = "Could not open package homepage"
+    }
+
+    func reportPackageHomepageOpened() {
+        packageHomepageErrorMessage = nil
+    }
+
+    func cachedPackageHomepageURL(for packageID: String) -> URL? {
+        packageHomepageStore.url(for: packageID)
+    }
+
     func setPeriodicCheckInterval(_ interval: TimeInterval) {
         let normalizedInterval = max(60, interval)
         guard periodicCheckInterval != normalizedInterval else { return }
@@ -255,6 +278,7 @@ final class MenuBarModel: ObservableObject {
         activity = .cleaning
         statusMessage = "Cleaning up…"
         lastErrorMessage = nil
+        packageHomepageErrorMessage = nil
         defer { activity = .idle }
 
         do {
@@ -278,6 +302,9 @@ final class MenuBarModel: ObservableObject {
     func skip(_ package: HomebrewPackage, remember: Bool) {
         sessionSkippedPackageIDs.insert(package.id)
         if remember {
+            if let homepageURL = package.homepageURL {
+                packageHomepageStore.save([package.id: homepageURL])
+            }
             rememberedSkippedPackageIDs.insert(package.id)
             preferences.rememberedSkippedPackageIDs = rememberedSkippedPackageIDs
         }
@@ -360,6 +387,7 @@ final class MenuBarModel: ObservableObject {
         activity = .updating
         statusMessage = "Updating \(packages.count) package\(packages.count == 1 ? "" : "s")…"
         lastErrorMessage = nil
+        packageHomepageErrorMessage = nil
         progress = nil
 
         defer {
@@ -378,8 +406,10 @@ final class MenuBarModel: ObservableObject {
                     }
                 }
             )
-            availablePackages = result.remainingPackages
-            mergePendingCompletedPackages(result.completedPackages)
+            availablePackages = attachHomepageURLs(to: result.remainingPackages)
+            mergePendingCompletedPackages(
+                attachHomepageURLs(to: result.completedPackages)
+            )
             captureSuccessfullyQuitApplications(from: result.failures.map(\.output))
             administratorAccessRequired = result.failures.contains { failure in
                 if case .permissionRequired = HomebrewError.classified(
@@ -459,6 +489,58 @@ final class MenuBarModel: ObservableObject {
             } else {
                 pendingCompletedPackages.append(package)
             }
+        }
+    }
+
+    private func attachHomepageURLs(
+        to packages: [HomebrewPackage]
+    ) -> [HomebrewPackage] {
+        packages.map { package in
+            HomebrewPackage(
+                name: package.name,
+                installedVersion: package.installedVersion,
+                availableVersion: package.availableVersion,
+                kind: package.kind,
+                homepageURL: package.homepageURL
+                    ?? packageHomepageStore.url(for: package.id)
+            )
+        }
+    }
+
+    private func attachHomepageURLs(
+        to packages: [UpdatedPackage]
+    ) -> [UpdatedPackage] {
+        packages.map { package in
+            UpdatedPackage(
+                name: package.name,
+                previousVersion: package.previousVersion,
+                installedVersion: package.installedVersion,
+                kind: package.kind,
+                homepageURL: package.homepageURL
+                    ?? packageHomepageStore.url(for: package.id)
+            )
+        }
+    }
+
+    private static func attachingHomepageURLs(
+        to history: [UpdateHistoryEntry],
+        store: PackageHomepageStore
+    ) -> [UpdateHistoryEntry] {
+        history.map { entry in
+            UpdateHistoryEntry(
+                id: entry.id,
+                packages: entry.packages.map { package in
+                    UpdatedPackage(
+                        name: package.name,
+                        previousVersion: package.previousVersion,
+                        installedVersion: package.installedVersion,
+                        kind: package.kind,
+                        homepageURL: package.homepageURL
+                            ?? store.url(for: package.id)
+                    )
+                },
+                timestamp: entry.timestamp
+            )
         }
     }
 

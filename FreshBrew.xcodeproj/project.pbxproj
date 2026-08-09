@@ -56,6 +56,7 @@
 		A20000000000000000000001 /* AppWindowPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* AppWindowPresenter.swift */; };
 		A20000000000000000000002 /* StatusIconAnimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* StatusIconAnimator.swift */; };
 		A40000000000000000000001 /* ApplicationLifecycleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000001 /* ApplicationLifecycleService.swift */; };
+		A50000000000000000000001 /* PackageHomepageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000001 /* PackageHomepageService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -122,6 +123,7 @@
 		B20000000000000000000001 /* AppWindowPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppWindowPresenter.swift; sourceTree = "<group>"; };
 		B20000000000000000000002 /* StatusIconAnimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusIconAnimator.swift; sourceTree = "<group>"; };
 		B40000000000000000000001 /* ApplicationLifecycleService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationLifecycleService.swift; sourceTree = "<group>"; };
+		B50000000000000000000001 /* PackageHomepageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PackageHomepageService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -255,6 +257,7 @@
 				B10000000000000000000023 /* HomebrewServicing.swift */,
 				B1000000000000000000002C /* LaunchAtLoginService.swift */,
 				B1000000000000000000002B /* NotificationService.swift */,
+				B50000000000000000000001 /* PackageHomepageService.swift */,
 				B10000000000000000000025 /* UpdateHistoryStore.swift */,
 			);
 			path = Services;
@@ -418,6 +421,7 @@
 				A1000000000000000000000D /* HomebrewService.swift in Sources */,
 				A10000000000000000000018 /* HomebrewServicing.swift in Sources */,
 				A10000000000000000000021 /* LaunchAtLoginService.swift in Sources */,
+				A50000000000000000000001 /* PackageHomepageService.swift in Sources */,
 				A1000000000000000000001C /* MenuBarModel.swift in Sources */,
 				A10000000000000000000004 /* MenuBarController.swift in Sources */,
 				A10000000000000000000024 /* NotificationActionRouter.swift in Sources */,

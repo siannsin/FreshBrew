@@ -51,6 +51,31 @@ final class PersistenceStoreTests: XCTestCase {
         )
     }
 
+    func testPackageHomepageStorePersistsURLsByPackageIdentity() throws {
+        let defaults = InMemoryPreferencesStore()
+        let firstStore = PackageHomepageStore(defaults: defaults)
+        let homepageURL = try XCTUnwrap(URL(string: "https://chatgpt.com/"))
+
+        firstStore.save(["cask:chatgpt": homepageURL])
+
+        let secondStore = PackageHomepageStore(defaults: defaults)
+        XCTAssertEqual(secondStore.url(for: "cask:chatgpt"), homepageURL)
+        XCTAssertNil(secondStore.url(for: "formula:chatgpt"))
+    }
+
+    func testHistoryStoreDecodesLegacyPackagesWithoutHomepage() throws {
+        let defaults = InMemoryPreferencesStore()
+        let legacyJSON = """
+        [{"id":"00000000-0000-0000-0000-000000000001","packages":[{"name":"wget","previousVersion":"1.0","installedVersion":"2.0","kind":"formula"}],"timestamp":100}]
+        """
+        defaults.set(Data(legacyJSON.utf8), forKey: "updateHistory")
+
+        let entries = UpdateHistoryStore(defaults: defaults).load()
+
+        XCTAssertEqual(entries.first?.packages.first?.name, "wget")
+        XCTAssertNil(entries.first?.packages.first?.homepageURL)
+    }
+
     private func updatedPackage(named name: String) -> UpdatedPackage {
         UpdatedPackage(
             name: name,

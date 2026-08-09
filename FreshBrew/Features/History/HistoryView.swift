@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HistoryView: View {
     @ObservedObject var model: MenuBarModel
+    let openPackageHomepage: (String, HomebrewPackageKind, URL?) -> Void
 
     var body: some View {
         Group {
@@ -16,7 +17,10 @@ struct HistoryView: View {
                     ForEach(HistoryGrouping.days(from: model.updateHistory)) { day in
                         Section(HistoryGrouping.dateTitle(for: day.date)) {
                             ForEach(day.entries) { entry in
-                                HistoryEntryView(entry: entry)
+                                HistoryEntryView(
+                                    entry: entry,
+                                    openPackageHomepage: openPackageHomepage
+                                )
                             }
                         }
                     }
@@ -30,6 +34,7 @@ struct HistoryView: View {
 
 private struct HistoryEntryView: View {
     let entry: UpdateHistoryEntry
+    let openPackageHomepage: (String, HomebrewPackageKind, URL?) -> Void
 
     var body: some View {
         let formulae = entry.packages.filter { $0.kind == .formula }
@@ -42,11 +47,13 @@ private struct HistoryEntryView: View {
 
             HistoryPackageSection(
                 title: "Formulae",
-                packages: formulae
+                packages: formulae,
+                openPackageHomepage: openPackageHomepage
             )
             HistoryPackageSection(
                 title: "Casks",
-                packages: casks
+                packages: casks,
+                openPackageHomepage: openPackageHomepage
             )
             .padding(.top, formulae.isEmpty || casks.isEmpty ? 0 : 6)
         }
@@ -57,6 +64,7 @@ private struct HistoryEntryView: View {
 private struct HistoryPackageSection: View {
     let title: String
     let packages: [UpdatedPackage]
+    let openPackageHomepage: (String, HomebrewPackageKind, URL?) -> Void
 
     var body: some View {
         if !packages.isEmpty {
@@ -66,18 +74,28 @@ private struct HistoryPackageSection: View {
                     .foregroundStyle(.secondary)
 
                 ForEach(packages) { package in
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(package.name)
-                            .lineLimit(1)
-                            .layoutPriority(1)
-                        Spacer(minLength: 16)
-                        Text(HomebrewVersionDisplay.compactTransition(for: package))
-                            .monospacedDigit()
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .foregroundStyle(.secondary)
-                            .help(HomebrewVersionDisplay.fullTransition(for: package))
+                    Button {
+                        openPackageHomepage(
+                            package.name,
+                            package.kind,
+                            package.homepageURL
+                        )
+                    } label: {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(package.name)
+                                .lineLimit(1)
+                                .layoutPriority(1)
+                            Spacer(minLength: 16)
+                            Text(HomebrewVersionDisplay.compactTransition(for: package))
+                                .monospacedDigit()
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .foregroundStyle(.secondary)
+                                .help(HomebrewVersionDisplay.fullTransition(for: package))
+                        }
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                 }
             }
         }

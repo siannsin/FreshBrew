@@ -3,6 +3,102 @@ import XCTest
 @testable import FreshBrew
 
 final class HomebrewServiceTests: XCTestCase {
+    func testPackageHomepageUsesKindSpecificHomebrewInfoMetadata() async throws {
+        let runner = StubCommandRunner(results: [
+            CommandResult(
+                exitCode: 0,
+                standardOutput: """
+                {"formulae":[{"homepage":"https://github.com/BurntSushi/ripgrep"}],"casks":[]}
+                """,
+                standardError: ""
+            ),
+            CommandResult(
+                exitCode: 0,
+                standardOutput: """
+                {"formulae":[],"casks":[{"homepage":"https://chatgpt.com/"}]}
+                """,
+                standardError: ""
+            )
+        ])
+        let service = makeService(runner: runner)
+
+        let formulaURL = try await service.packageHomepageURL(
+            packageName: "ripgrep",
+            kind: .formula
+        )
+        let caskURL = try await service.packageHomepageURL(
+            packageName: "chatgpt",
+            kind: .cask
+        )
+
+        XCTAssertEqual(formulaURL.absoluteString, "https://github.com/BurntSushi/ripgrep")
+        XCTAssertEqual(caskURL.absoluteString, "https://chatgpt.com/")
+        let requests = await runner.recordedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [
+            ["info", "--json=v2", "--formula", "ripgrep"],
+            ["info", "--json=v2", "--cask", "chatgpt"]
+        ])
+        XCTAssertEqual(
+            requests.map(\.timeoutPolicy),
+            [HomebrewService.homepageTimeoutPolicy, HomebrewService.homepageTimeoutPolicy]
+        )
+        XCTAssertEqual(
+            requests.map { $0.environment["HOMEBREW_NO_AUTO_UPDATE"] },
+            ["1", "1"]
+        )
+    }
+
+    func testBulkPackageHomepagesUseOneCommandPerKind() async throws {
+        let output = """
+        {"formulae":[{"name":"ripgrep","homepage":"https://github.com/BurntSushi/ripgrep"}],"casks":[{"token":"chatgpt","homepage":"https://chatgpt.com/"}]}
+        """
+        let runner = StubCommandRunner(results: [
+            CommandResult(exitCode: 0, standardOutput: output, standardError: ""),
+            CommandResult(exitCode: 0, standardOutput: output, standardError: "")
+        ])
+        let service = makeService(runner: runner)
+        let packages = [
+            package(named: "ripgrep", kind: .formula),
+            package(named: "chatgpt", kind: .cask)
+        ]
+
+        let urls = await service.packageHomepageURLs(for: packages)
+
+        XCTAssertEqual(
+            urls["formula:ripgrep"]?.absoluteString,
+            "https://github.com/BurntSushi/ripgrep"
+        )
+        XCTAssertEqual(urls["cask:chatgpt"]?.absoluteString, "https://chatgpt.com/")
+        let requests = await runner.recordedRequests()
+        XCTAssertEqual(Set(requests.map(\.arguments)), Set([
+            ["info", "--json=v2", "--formula", "ripgrep"],
+            ["info", "--json=v2", "--cask", "chatgpt"]
+        ]))
+        XCTAssertTrue(requests.allSatisfy {
+            $0.timeoutPolicy == HomebrewService.homepageTimeoutPolicy
+                && $0.environment["HOMEBREW_NO_AUTO_UPDATE"] == "1"
+        })
+    }
+
+    func testPackageHomepageRejectsMissingAndNonWebURLs() {
+        XCTAssertThrowsError(try HomebrewService.parsePackageHomepageURL(
+            from: #"{"formulae":[{"homepage":null}],"casks":[]}"#,
+            kind: .formula
+        )) { error in
+            XCTAssertEqual(error as? PackageHomepageError, .unavailable)
+        }
+
+        XCTAssertThrowsError(try HomebrewService.parsePackageHomepageURL(
+            from: #"{"formulae":[],"casks":[{"homepage":"file:///tmp/example"}]}"#,
+            kind: .cask
+        )) { error in
+            XCTAssertEqual(
+                error as? PackageHomepageError,
+                .invalidURL("file:///tmp/example")
+            )
+        }
+    }
+
     func testCheckOutdatedRefreshesThenUsesGreedySetting() async throws {
         let runner = StubCommandRunner(results: [
             CommandResult(exitCode: 0, standardOutput: "updated", standardError: ""),

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SkippedPackagesView: View {
     @ObservedObject var model: MenuBarModel
+    let openPackageHomepage: (String, HomebrewPackageKind, URL?) -> Void
 
     var body: some View {
         Group {
@@ -14,7 +15,17 @@ struct SkippedPackagesView: View {
             } else {
                 List(model.rememberedSkippedPackageIDs.sorted(), id: \.self) { packageID in
                     HStack {
-                        Text(Self.displayName(for: packageID))
+                        Button(Self.displayName(for: packageID)) {
+                            guard let package = Self.packageIdentity(from: packageID) else {
+                                return
+                            }
+                            openPackageHomepage(
+                                package.name,
+                                package.kind,
+                                model.cachedPackageHomepageURL(for: packageID)
+                            )
+                        }
+                        .buttonStyle(.plain)
                         Spacer()
                         Button("Stop Skipping") {
                             model.forgetSkippedPackage(id: packageID)
@@ -34,5 +45,16 @@ struct SkippedPackagesView: View {
 
     private static func displayName(for packageID: String) -> String {
         packageID.split(separator: ":", maxSplits: 1).last.map(String.init) ?? packageID
+    }
+
+    private static func packageIdentity(
+        from packageID: String
+    ) -> (name: String, kind: HomebrewPackageKind)? {
+        let components = packageID.split(separator: ":", maxSplits: 1)
+        guard components.count == 2,
+              let kind = HomebrewPackageKind(rawValue: String(components[0])) else {
+            return nil
+        }
+        return (String(components[1]), kind)
     }
 }

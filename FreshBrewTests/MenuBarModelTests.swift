@@ -4,6 +4,55 @@ import XCTest
 
 @MainActor
 final class MenuBarModelTests: XCTestCase {
+    func testPackageHomepageOpenFailureProducesVisibleStatus() {
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: FakeHomebrewService(),
+            dependencies: dependencies
+        )
+
+        model.reportPackageHomepageOpenFailure()
+
+        XCTAssertEqual(model.packageHomepageErrorMessage, "Could not open package homepage")
+        XCTAssertNil(model.lastErrorMessage)
+
+        model.reportPackageHomepageOpened()
+
+        XCTAssertNil(model.packageHomepageErrorMessage)
+    }
+
+    func testCheckEnrichesPackagesAndPersistsHomepageIntoHistory() async throws {
+        let package = makePackage(named: "ripgrep", kind: .formula)
+        let homepageURL = try XCTUnwrap(
+            URL(string: "https://github.com/BurntSushi/ripgrep")
+        )
+        let service = FakeHomebrewService(
+            checkResponses: [.packages([package])],
+            updateResult: UpdateResult(
+                completedPackages: [makeUpdatedPackage(from: package)],
+                remainingPackages: [],
+                failures: [],
+                timestamp: Date(timeIntervalSince1970: 200)
+            ),
+            homepageURLs: [package.id: homepageURL]
+        )
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        _ = await model.checkUpdates()
+        XCTAssertEqual(model.availablePackages.first?.homepageURL, homepageURL)
+        _ = await model.updateAll()
+
+        XCTAssertEqual(model.latestUpdate?.packages.first?.homepageURL, homepageURL)
+        XCTAssertEqual(
+            UpdateHistoryStore(defaults: dependencies.defaults)
+                .load().first?.packages.first?.homepageURL,
+            homepageURL
+        )
+    }
+
     func testApplicationLifecycleServiceSkipsRunningApplications() {
         let runningIdentifier = "com.example.running"
         let closedIdentifier = "com.example.closed"
@@ -1188,6 +1237,7 @@ final class MenuBarModelTests: XCTestCase {
             homebrewService: service,
             preferences: dependencies.preferences,
             historyStore: dependencies.historyStore,
+            packageHomepageStore: dependencies.packageHomepageStore,
             errorLogStore: dependencies.errorLogStore,
             notificationService: notificationService,
             launchAtLoginService: FakeLaunchAtLoginService(),
@@ -1203,8 +1253,10 @@ final class MenuBarModelTests: XCTestCase {
         let logDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         return ModelDependencies(
+            defaults: defaults,
             preferences: FreshBrewPreferences(defaults: defaults),
             historyStore: UpdateHistoryStore(defaults: defaults),
+            packageHomepageStore: PackageHomepageStore(defaults: defaults),
             errorLogStore: HomebrewErrorLogStore(
                 fileURL: logDirectory.appendingPathComponent("homebrew-errors.json")
             ),
@@ -1247,8 +1299,10 @@ final class MenuBarModelTests: XCTestCase {
 }
 
 private struct ModelDependencies {
+    let defaults: InMemoryPreferencesStore
     let preferences: FreshBrewPreferences
     let historyStore: UpdateHistoryStore
+    let packageHomepageStore: PackageHomepageStore
     let errorLogStore: HomebrewErrorLogStore
     let logDirectory: URL
     let referenceDate: Date
@@ -1271,15 +1325,18 @@ private actor FakeHomebrewService: HomebrewServicing {
     private var administratorPasswords: [String?] = []
     private var cleanupResponses: [Result<CleanupResult, HomebrewError>]
     private var cleanupDeepValues: [Bool] = []
+    private var homepageURLs: [String: URL] = [:]
 
     init(
         checkResponses: [CheckResponse] = [],
         updateResult: UpdateResult? = nil,
         updateResponses: [Result<UpdateResult, HomebrewError>] = [],
-        cleanupResponses: [Result<CleanupResult, HomebrewError>] = []
+        cleanupResponses: [Result<CleanupResult, HomebrewError>] = [],
+        homepageURLs: [String: URL] = [:]
     ) {
         self.checkResponses = checkResponses
         self.cleanupResponses = cleanupResponses
+        self.homepageURLs = homepageURLs
         if let updateResult {
             self.updateResponses = [.success(updateResult)]
         } else {
@@ -1299,6 +1356,12 @@ private actor FakeHomebrewService: HomebrewServicing {
         case let .failure(error):
             throw error
         }
+    }
+
+    func packageHomepageURLs(
+        for packages: [HomebrewPackage]
+    ) async -> [String: URL] {
+        homepageURLs
     }
 
     func update(

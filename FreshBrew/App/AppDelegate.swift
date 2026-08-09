@@ -10,16 +10,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let unlockMonitor = SessionUnlockMonitor()
     private let notificationRouter: NotificationActionRouter
     private let windowPresenter: AppWindowPresenter
+    private let packageHomepageService: PackageHomepageService
     private var menuBarController: MenuBarController?
 
     override init() {
         let notificationService = NotificationService()
-        let model = MenuBarModel(notificationService: notificationService)
+        let homebrewService = HomebrewService()
+        let packageHomepageStore = PackageHomepageStore()
+        let packageHomepageService = PackageHomepageService(
+            homepageResolver: homebrewService,
+            store: packageHomepageStore
+        )
+        let model = MenuBarModel(
+            homebrewService: homebrewService,
+            packageHomepageStore: packageHomepageStore,
+            notificationService: notificationService
+        )
         let updateCoordinator = UpdateActionCoordinator(model: model)
         self.notificationService = notificationService
         self.model = model
         self.updateCoordinator = updateCoordinator
-        windowPresenter = AppWindowPresenter(model: model)
+        self.packageHomepageService = packageHomepageService
+        windowPresenter = AppWindowPresenter(
+            model: model,
+            packageHomepageService: packageHomepageService
+        )
         notificationRouter = NotificationActionRouter {
             NSApplication.shared.activate(ignoringOtherApps: true)
             await updateCoordinator.updateAll()
@@ -37,7 +52,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         menuBarController = MenuBarController(
             model: model,
             updateCoordinator: updateCoordinator,
-            windowPresenter: windowPresenter
+            windowPresenter: windowPresenter,
+            packageHomepageService: packageHomepageService
         )
         Task { await notificationService.requestAuthorization() }
         model.startAutomaticChecks()

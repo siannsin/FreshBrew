@@ -6,6 +6,10 @@ protocol HomebrewServicing: Sendable {
         refreshMetadata: Bool
     ) async throws -> [HomebrewPackage]
 
+    func packageHomepageURLs(
+        for packages: [HomebrewPackage]
+    ) async -> [String: URL]
+
     func update(
         packages: [HomebrewPackage],
         greedy: Bool,

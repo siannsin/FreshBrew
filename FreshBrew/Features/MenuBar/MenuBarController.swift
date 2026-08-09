@@ -6,6 +6,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private let model: MenuBarModel
     private let updateCoordinator: UpdateActionCoordinator
     private let windowPresenter: AppWindowPresenter
+    private let packageHomepageService: any PackageHomepageOpening
     private let statusItem: NSStatusItem
     private let menu = NSMenu()
     private var statusIconAnimator: StatusIconAnimator?
@@ -16,11 +17,13 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     init(
         model: MenuBarModel,
         updateCoordinator: UpdateActionCoordinator,
-        windowPresenter: AppWindowPresenter
+        windowPresenter: AppWindowPresenter,
+        packageHomepageService: (any PackageHomepageOpening)? = nil
     ) {
         self.model = model
         self.updateCoordinator = updateCoordinator
         self.windowPresenter = windowPresenter
+        self.packageHomepageService = packageHomepageService ?? PackageHomepageService()
         statusItem = NSStatusBar.system.statusItem(withLength: 20)
         super.init()
 
@@ -128,6 +131,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         if model.isRunning || model.lastErrorMessage != nil {
             return model.statusMessage
         }
+        if let packageHomepageErrorMessage = model.packageHomepageErrorMessage {
+            return packageHomepageErrorMessage
+        }
         if let lastCheckDate = model.lastHomebrewCheckDate {
             return "Last checked: \(lastCheckDate.formatted(date: .omitted, time: .shortened))"
         }
@@ -143,40 +149,15 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         let submenu = NSMenu(title: item.title)
 
         for package in model.visiblePackages {
-            let packageItem = NSMenuItem(title: package.name, action: nil, keyEquivalent: "")
-            let packageMenu = NSMenu(title: package.name)
-
-            let versionItem = NSMenuItem(
-                title: HomebrewVersionDisplay.compactTransition(for: package),
-                action: nil,
-                keyEquivalent: ""
-            )
-            versionItem.isEnabled = false
-            packageMenu.addItem(versionItem)
-            packageMenu.addItem(.separator())
-
-            let updateItem = actionItem(
-                "Update",
-                action: #selector(updatePackage(_:)),
-                representedObject: package,
-                isEnabled: !model.isRunning
-            )
-            packageMenu.addItem(updateItem)
-            packageMenu.addItem(actionItem(
-                "Skip This Time",
-                action: #selector(skipPackageOnce(_:)),
-                representedObject: package,
-                isEnabled: !model.isRunning
+            submenu.addItem(Self.makeAvailablePackageMenuItem(
+                package: package,
+                target: self,
+                openPageAction: #selector(openAvailablePackageHomepage(_:)),
+                updateAction: #selector(updatePackage(_:)),
+                skipOnceAction: #selector(skipPackageOnce(_:)),
+                alwaysSkipAction: #selector(alwaysSkipPackage(_:)),
+                updatesEnabled: !model.isRunning
             ))
-            packageMenu.addItem(actionItem(
-                "Always Skip",
-                action: #selector(alwaysSkipPackage(_:)),
-                representedObject: package,
-                isEnabled: !model.isRunning
-            ))
-
-            packageItem.submenu = packageMenu
-            submenu.addItem(packageItem)
         }
 
         item.submenu = submenu
@@ -219,11 +200,66 @@ final class MenuBarController: NSObject, NSMenuDelegate {
                 package.installedVersion,
                 kind: package.kind
             )
-            menu.addItem(actionItem(
-                "\(package.name) \(version)",
-                action: #selector(ignoreMenuItem)
+            menu.addItem(Self.makeLastUpdatePackageItem(
+                package: package,
+                title: "\(package.name) \(version)",
+                target: self,
+                openPageAction: #selector(openUpdatedPackageHomepage(_:))
             ))
         }
+    }
+
+    static func makeAvailablePackageMenuItem(
+        package: HomebrewPackage,
+        target: AnyObject?,
+        openPageAction: Selector,
+        updateAction: Selector,
+        skipOnceAction: Selector,
+        alwaysSkipAction: Selector,
+        updatesEnabled: Bool
+    ) -> NSMenuItem {
+        let packageItem = NSMenuItem(title: package.name, action: nil, keyEquivalent: "")
+        let packageMenu = NSMenu(title: package.name)
+
+        let versionItem = NSMenuItem(
+            title: HomebrewVersionDisplay.compactTransition(for: package),
+            action: openPageAction,
+            keyEquivalent: ""
+        )
+        versionItem.target = target
+        versionItem.representedObject = package
+        versionItem.isEnabled = true
+        packageMenu.addItem(versionItem)
+        packageMenu.addItem(.separator())
+
+        let actionDetails: [(String, Selector)] = [
+            ("Update", updateAction),
+            ("Skip This Time", skipOnceAction),
+            ("Always Skip", alwaysSkipAction)
+        ]
+        for (title, action) in actionDetails {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = target
+            item.representedObject = package
+            item.isEnabled = updatesEnabled
+            packageMenu.addItem(item)
+        }
+
+        packageItem.submenu = packageMenu
+        return packageItem
+    }
+
+    static func makeLastUpdatePackageItem(
+        package: UpdatedPackage,
+        title: String,
+        target: AnyObject?,
+        openPageAction: Selector
+    ) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: openPageAction, keyEquivalent: "")
+        item.target = target
+        item.representedObject = package
+        item.isEnabled = true
+        return item
     }
 
     private func addSettingsMenu() {
@@ -346,6 +382,48 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         model.skip(package, remember: true)
     }
 
+    @objc private func openAvailablePackageHomepage(_ sender: NSMenuItem) {
+        guard let package = sender.representedObject as? HomebrewPackage else { return }
+        openPackageHomepage(
+            name: package.name,
+            kind: package.kind,
+            homepageURL: package.homepageURL
+        )
+    }
+
+    @objc private func openUpdatedPackageHomepage(_ sender: NSMenuItem) {
+        guard let package = sender.representedObject as? UpdatedPackage else { return }
+        openPackageHomepage(
+            name: package.name,
+            kind: package.kind,
+            homepageURL: package.homepageURL
+        )
+    }
+
+    private func openPackageHomepage(
+        name: String,
+        kind: HomebrewPackageKind,
+        homepageURL: URL?
+    ) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let opened = try await packageHomepageService.openPage(
+                    packageName: name,
+                    kind: kind,
+                    homepageURL: homepageURL
+                )
+                if !opened {
+                    model.reportPackageHomepageOpenFailure()
+                } else {
+                    model.reportPackageHomepageOpened()
+                }
+            } catch {
+                model.reportPackageHomepageOpenFailure()
+            }
+        }
+    }
+
     @objc private func toggleGreedyMode() {
         model.greedyModeEnabled.toggle()
     }
@@ -390,8 +468,6 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     @objc private func showAbout() {
         windowPresenter.showAbout()
     }
-
-    @objc private func ignoreMenuItem() {}
 
     @objc private func quit() {
         NSApplication.shared.terminate(nil)

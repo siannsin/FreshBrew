@@ -10,6 +10,21 @@ struct HomebrewPackage: Identifiable, Codable, Hashable, Sendable {
     let installedVersion: String
     let availableVersion: String
     let kind: HomebrewPackageKind
+    let homepageURL: URL?
+
+    init(
+        name: String,
+        installedVersion: String,
+        availableVersion: String,
+        kind: HomebrewPackageKind,
+        homepageURL: URL? = nil
+    ) {
+        self.name = name
+        self.installedVersion = installedVersion
+        self.availableVersion = availableVersion
+        self.kind = kind
+        self.homepageURL = homepageURL
+    }
 
     var id: String {
         "\(kind.rawValue):\(name)"
@@ -21,6 +36,21 @@ struct UpdatedPackage: Identifiable, Codable, Hashable, Sendable {
     let previousVersion: String
     let installedVersion: String
     let kind: HomebrewPackageKind
+    let homepageURL: URL?
+
+    init(
+        name: String,
+        previousVersion: String,
+        installedVersion: String,
+        kind: HomebrewPackageKind,
+        homepageURL: URL? = nil
+    ) {
+        self.name = name
+        self.previousVersion = previousVersion
+        self.installedVersion = installedVersion
+        self.kind = kind
+        self.homepageURL = homepageURL
+    }
 
     var id: String {
         "\(kind.rawValue):\(name)"

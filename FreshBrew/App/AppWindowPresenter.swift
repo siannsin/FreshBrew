@@ -10,10 +10,15 @@ final class AppWindowPresenter {
     }
 
     private let model: MenuBarModel
+    private let packageHomepageService: any PackageHomepageOpening
     private var windowControllers: [WindowID: NSWindowController] = [:]
 
-    init(model: MenuBarModel) {
+    init(
+        model: MenuBarModel,
+        packageHomepageService: any PackageHomepageOpening = PackageHomepageService()
+    ) {
         self.model = model
+        self.packageHomepageService = packageHomepageService
     }
 
     func showUpdateHistory() {
@@ -23,7 +28,10 @@ final class AppWindowPresenter {
             contentSize: NSSize(width: 400, height: 320),
             minimumSize: NSSize(width: 380, height: 300),
             isResizable: true,
-            content: AnyView(HistoryView(model: model))
+            content: AnyView(HistoryView(
+                model: model,
+                openPackageHomepage: openPackageHomepage
+            ))
         )
     }
 
@@ -34,8 +42,33 @@ final class AppWindowPresenter {
             contentSize: NSSize(width: 400, height: 320),
             minimumSize: NSSize(width: 380, height: 300),
             isResizable: true,
-            content: AnyView(SkippedPackagesView(model: model))
+            content: AnyView(SkippedPackagesView(
+                model: model,
+                openPackageHomepage: openPackageHomepage
+            ))
         )
+    }
+
+    private func openPackageHomepage(
+        name: String,
+        kind: HomebrewPackageKind,
+        homepageURL: URL?
+    ) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let opened = try await packageHomepageService.openPage(
+                    packageName: name,
+                    kind: kind,
+                    homepageURL: homepageURL
+                )
+                opened
+                    ? model.reportPackageHomepageOpened()
+                    : model.reportPackageHomepageOpenFailure()
+            } catch {
+                model.reportPackageHomepageOpenFailure()
+            }
+        }
     }
 
     func showAbout() {
