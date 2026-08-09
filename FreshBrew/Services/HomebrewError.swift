@@ -15,7 +15,10 @@ extension HomebrewError: LocalizedError {
         switch self {
         case .executableNotFound:
             return "Homebrew was not found at /opt/homebrew/bin/brew."
-        case .commandFailed:
+        case let .commandFailed(failure):
+            if Self.outputIndicatesNetworkFailure(failure.output) {
+                return "Network unavailable. Check your connection and try again."
+            }
             return "Homebrew could not complete the operation."
         case .permissionRequired:
             return "Homebrew requires administrator access."
@@ -24,7 +27,7 @@ extension HomebrewError: LocalizedError {
         case .invalidRecoveryTarget:
             return "The selected path is not a valid application bundle for cask recovery."
         case .networkUnavailable:
-            return "No network connection is available."
+            return "Network unavailable. Check your connection and try again."
         case let .timedOut(operation, seconds, _):
             return "\(operation.capitalized) timed out after \(Self.formattedDuration(seconds))."
         }
@@ -41,6 +44,35 @@ extension HomebrewError: LocalizedError {
 }
 
 extension HomebrewError {
+    var indicatesNetworkFailure: Bool {
+        switch self {
+        case .networkUnavailable:
+            return true
+        case let .commandFailed(failure):
+            return Self.outputIndicatesNetworkFailure(failure.output)
+        default:
+            return false
+        }
+    }
+
+    static func outputIndicatesNetworkFailure(_ output: String) -> Bool {
+        let normalizedOutput = output.lowercased()
+        let networkMarkers = [
+            "could not resolve host",
+            "could not resolve hostname",
+            "could not resolve proxy",
+            "failed to connect to",
+            "could not connect to server",
+            "couldn't connect to server",
+            "network is unreachable",
+            "no route to host",
+            "temporary failure in name resolution",
+            "nodename nor servname provided",
+            "name or service not known"
+        ]
+        return networkMarkers.contains(where: normalizedOutput.contains)
+    }
+
     static func classified(
         operation: String,
         exitCode: Int32,

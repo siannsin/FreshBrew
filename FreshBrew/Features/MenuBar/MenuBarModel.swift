@@ -571,9 +571,10 @@ final class MenuBarModel: ObservableObject {
         timeout: String
     ) -> String {
         guard let homebrewError = error as? HomebrewError else { return fallback }
+        if homebrewError.indicatesNetworkFailure {
+            return "Network unavailable"
+        }
         switch homebrewError {
-        case .networkUnavailable:
-            return "No network connection"
         case .timedOut:
             return timeout
         default:

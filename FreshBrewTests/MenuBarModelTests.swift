@@ -818,12 +818,17 @@ final class MenuBarModelTests: XCTestCase {
 
     func testFailedCheckKeepsPreviousPackagesAndWritesErrorLog() async {
         let package = makePackage(named: "ripgrep", kind: .formula)
+        let diagnosticOutput = """
+        ==> Updating Homebrew...
+        fatal: unable to access 'https://github.com/Homebrew/brew/': Could not resolve host: github.com
+        Error: Fetching /opt/homebrew failed!
+        """
         let service = FakeHomebrewService(checkResponses: [
             .packages([package]),
             .failure(.commandFailed(HomebrewCommandFailure(
                 operation: "check",
                 exitCode: 1,
-                output: "network unavailable"
+                output: diagnosticOutput
             )))
         ])
         let dependencies = makeDependencies(now: Date(timeIntervalSince1970: 1_000))
@@ -836,12 +841,15 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertFalse(secondCheckSucceeded)
 
         XCTAssertEqual(model.availablePackages, [package])
-        XCTAssertNotNil(model.lastErrorMessage)
-        XCTAssertEqual(model.statusMessage, "Check failed")
+        XCTAssertEqual(
+            model.lastErrorMessage,
+            "Network unavailable. Check your connection and try again."
+        )
+        XCTAssertEqual(model.statusMessage, "Network unavailable")
         let entries = try? await dependencies.errorLogStore.entries(
             referenceDate: Date(timeIntervalSince1970: 1_000)
         )
-        XCTAssertEqual(entries?.first?.output, "network unavailable")
+        XCTAssertEqual(entries?.first?.output, diagnosticOutput)
     }
 
     func testAutomaticCheckPostsOnlyNonzeroUpdateCount() async {
@@ -890,11 +898,15 @@ final class MenuBarModelTests: XCTestCase {
     }
 
     func testFailedCheckPostsFailureNotification() async {
+        let diagnosticOutput = """
+        fatal: unable to access 'https://github.com/Homebrew/brew/': Could not resolve host: github.com
+        Failed to download https://formulae.brew.sh/api/formula.jws.json!
+        """
         let service = FakeHomebrewService(checkResponses: [
             .failure(.commandFailed(HomebrewCommandFailure(
                 operation: "check",
                 exitCode: 1,
-                output: "network unavailable"
+                output: diagnosticOutput
             )))
         ])
         let notifications = FakeNotificationService()
@@ -909,7 +921,10 @@ final class MenuBarModelTests: XCTestCase {
         _ = await model.checkUpdates()
 
         let failureMessages = await notifications.failureMessages()
-        XCTAssertEqual(failureMessages, ["Homebrew could not complete the operation."])
+        XCTAssertEqual(
+            failureMessages,
+            ["Network unavailable. Check your connection and try again."]
+        )
     }
 
     func testTimedOutCheckUsesSpecificStatusNotificationAndLog() async {

@@ -108,6 +108,43 @@ final class HomebrewParsingTests: XCTestCase {
         )
     }
 
+    func testNetworkFailureDetectionMatchesCommonDNSAndConnectionErrors() {
+        let outputs = [
+            "fatal: unable to access a repository: Could not resolve host: github.com",
+            "ssh: Could not resolve hostname github.com: nodename nor servname provided",
+            "curl: (7) Failed to connect to formulae.brew.sh port 443",
+            "connect: Network is unreachable",
+            "fatal: unable to access a repository: No route to host"
+        ]
+
+        for output in outputs {
+            let error = HomebrewError.classified(
+                operation: "update metadata",
+                exitCode: 1,
+                output: output
+            )
+            XCTAssertTrue(error.indicatesNetworkFailure, output)
+            XCTAssertEqual(
+                error.errorDescription,
+                "Network unavailable. Check your connection and try again."
+            )
+        }
+    }
+
+    func testNetworkFailureDetectionIgnoresUnrelatedHomebrewErrors() {
+        let error = HomebrewError.classified(
+            operation: "update metadata",
+            exitCode: 1,
+            output: "Error: Fetching a tap failed because the repository does not exist"
+        )
+
+        XCTAssertFalse(error.indicatesNetworkFailure)
+        XCTAssertEqual(
+            error.errorDescription,
+            "Homebrew could not complete the operation."
+        )
+    }
+
     private func package(named name: String, kind: HomebrewPackageKind) -> HomebrewPackage {
         HomebrewPackage(
             name: name,
