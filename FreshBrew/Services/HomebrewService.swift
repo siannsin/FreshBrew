@@ -414,6 +414,26 @@ actor HomebrewService {
         return names
     }
 
+    nonisolated static func successfullyQuitApplicationBundleIdentifiers(
+        from output: String
+    ) -> Set<String> {
+        let prefix = "Application '"
+        let suffix = "' quit successfully."
+        var bundleIdentifiers = Set<String>()
+
+        for rawLine in output.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard line.hasPrefix(prefix), line.hasSuffix(suffix) else { continue }
+
+            let start = line.index(line.startIndex, offsetBy: prefix.count)
+            let end = line.index(line.endIndex, offsetBy: -suffix.count)
+            guard start < end else { continue }
+            bundleIdentifiers.insert(String(line[start..<end]))
+        }
+
+        return bundleIdentifiers
+    }
+
     private func ensureExecutableIsAvailable() throws {
         guard executableIsAvailable(executableURL) else {
             throw HomebrewError.executableNotFound(executableURL)

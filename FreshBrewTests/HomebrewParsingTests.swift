@@ -73,6 +73,20 @@ final class HomebrewParsingTests: XCTestCase {
         )
     }
 
+    func testSuccessfullyQuitApplicationParserMatchesExactHomebrewOutput() {
+        let output = """
+        ==> Quitting application 'com.spotify.client'...
+        Application 'com.spotify.client' quit successfully.
+        Application 'com.spotify.client' quit successfully.
+        Application 'com.example.other' did not quit.
+        """
+
+        XCTAssertEqual(
+            HomebrewService.successfullyQuitApplicationBundleIdentifiers(from: output),
+            ["com.spotify.client"]
+        )
+    }
+
     func testExistingApplicationConflictExtractsPath() {
         let output = "Error: stats: It seems there is already an App at '/Applications/Stats.app'."
 

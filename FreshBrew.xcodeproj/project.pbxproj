@@ -55,6 +55,7 @@
 		A30000000000000000000001 /* TestPreferencesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000001 /* TestPreferencesStore.swift */; };
 		A20000000000000000000001 /* AppWindowPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* AppWindowPresenter.swift */; };
 		A20000000000000000000002 /* StatusIconAnimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* StatusIconAnimator.swift */; };
+		A40000000000000000000001 /* ApplicationLifecycleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000001 /* ApplicationLifecycleService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -120,6 +121,7 @@
 		B30000000000000000000001 /* TestPreferencesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestPreferencesStore.swift; sourceTree = "<group>"; };
 		B20000000000000000000001 /* AppWindowPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppWindowPresenter.swift; sourceTree = "<group>"; };
 		B20000000000000000000002 /* StatusIconAnimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusIconAnimator.swift; sourceTree = "<group>"; };
+		B40000000000000000000001 /* ApplicationLifecycleService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationLifecycleService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -244,6 +246,7 @@
 		C10000000000000000000009 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				B40000000000000000000001 /* ApplicationLifecycleService.swift */,
 				B10000000000000000000016 /* CommandRunner.swift */,
 				B10000000000000000000024 /* FreshBrewPreferences.swift */,
 				B10000000000000000000017 /* HomebrewError.swift */,
@@ -393,6 +396,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A40000000000000000000001 /* ApplicationLifecycleService.swift in Sources */,
 				A20000000000000000000001 /* AppWindowPresenter.swift in Sources */,
 				A20000000000000000000002 /* StatusIconAnimator.swift in Sources */,
 				A1000000000000000000002A /* AboutView.swift in Sources */,

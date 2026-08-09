@@ -83,6 +83,7 @@ final class MenuBarModel: ObservableObject {
     private let errorLogStore: HomebrewErrorLogStore
     private let notificationService: any NotificationServing
     private let launchAtLoginService: any LaunchAtLoginServicing
+    private let applicationLifecycleService: any ApplicationLifecycleServicing
     private let now: @Sendable () -> Date
     private let sleep: @Sendable (TimeInterval) async throws -> Void
 
@@ -91,7 +92,8 @@ final class MenuBarModel: ObservableObject {
     private var periodicCheckTask: Task<Void, Never>?
     private var lastAttemptedPackages: [HomebrewPackage] = []
     private var pendingUpdateKnownPackageIDs: Set<String>?
-    private var pendingUpdatedPackageIDs = Set<String>()
+    private var pendingCompletedPackages: [UpdatedPackage] = []
+    private var pendingClosedApplicationBundleIdentifiers = Set<String>()
 
     init(
         homebrewService: any HomebrewServicing = HomebrewService(),
@@ -100,6 +102,7 @@ final class MenuBarModel: ObservableObject {
         errorLogStore: HomebrewErrorLogStore = HomebrewErrorLogStore(),
         notificationService: any NotificationServing = NoopNotificationService(),
         launchAtLoginService: (any LaunchAtLoginServicing)? = nil,
+        applicationLifecycleService: (any ApplicationLifecycleServicing)? = nil,
         now: @escaping @Sendable () -> Date = { Date() },
         sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { seconds in
             let nanoseconds = UInt64(max(0, seconds) * 1_000_000_000)
@@ -113,6 +116,8 @@ final class MenuBarModel: ObservableObject {
         self.notificationService = notificationService
         let resolvedLaunchAtLoginService = launchAtLoginService ?? LaunchAtLoginService()
         self.launchAtLoginService = resolvedLaunchAtLoginService
+        self.applicationLifecycleService = applicationLifecycleService
+            ?? ApplicationLifecycleService()
         self.now = now
         self.sleep = sleep
         greedyModeEnabled = preferences.greedyModeEnabled
@@ -199,8 +204,8 @@ final class MenuBarModel: ObservableObject {
         let remainingIDs = Set(availablePackages.map(\.id))
         let retryPackages = lastAttemptedPackages.filter { remainingIDs.contains($0.id) }
         guard !retryPackages.isEmpty else {
-            administratorAccessRequired = false
-            resetPendingUpdateWorkflow()
+            statusMessage = "Update failed"
+            await finalizePendingUpdateWorkflow(hadFailures: true)
             return nil
         }
         return await update(
@@ -347,11 +352,10 @@ final class MenuBarModel: ObservableObject {
         guard !isRunning, !packages.isEmpty else { return nil }
         let currentKnownPackageIDs = Set((availablePackages + packages).map(\.id))
         if !isAdministratorRetry {
+            resetPendingUpdateWorkflow()
             lastAttemptedPackages = packages
             pendingUpdateKnownPackageIDs = currentKnownPackageIDs
-            pendingUpdatedPackageIDs = []
         }
-        let knownPackageIDs = pendingUpdateKnownPackageIDs ?? currentKnownPackageIDs
         administratorAccessRequired = false
         activity = .updating
         statusMessage = "Updating \(packages.count) package\(packages.count == 1 ? "" : "s")…"
@@ -361,9 +365,6 @@ final class MenuBarModel: ObservableObject {
         defer {
             activity = .idle
             progress = nil
-            if !administratorAccessRequired {
-                resetPendingUpdateWorkflow()
-            }
         }
 
         do {
@@ -378,12 +379,8 @@ final class MenuBarModel: ObservableObject {
                 }
             )
             availablePackages = result.remainingPackages
-            pendingUpdatedPackageIDs.formUnion(result.completedPackages.map(\.id))
-            let updatedCount = pendingUpdatedPackageIDs.count
-            let newlyAvailableCount = visiblePackages.filter {
-                !knownPackageIDs.contains($0.id)
-            }.count
-            let remainingUpdateCount = visiblePackages.count
+            mergePendingCompletedPackages(result.completedPackages)
+            captureSuccessfullyQuitApplications(from: result.failures.map(\.output))
             administratorAccessRequired = result.failures.contains { failure in
                 if case .permissionRequired = HomebrewError.classified(
                     operation: failure.operation,
@@ -395,47 +392,8 @@ final class MenuBarModel: ObservableObject {
                 return false
             }
 
-            if !result.completedPackages.isEmpty {
-                updateHistory = historyStore.append(
-                    packages: result.completedPackages,
-                    timestamp: result.timestamp
-                )
-            }
-
             if result.failures.isEmpty {
-                var cleanupOutcome: UpdateCleanupOutcome?
-                if autoCleanupEnabled, updatedCount > 0 {
-                    activity = .cleaning
-                    statusMessage = "Cleaning up…"
-                    do {
-                        let cleanupResult = try await homebrewService.cleanup(deep: false)
-                        cleanupOutcome = .completed(
-                            freedSpace: cleanupResult.freedSpaceDescription
-                        )
-                        statusMessage = "FreshBrew is ready"
-                    } catch {
-                        cleanupOutcome = .failed
-                        await handleFailure(
-                            error,
-                            operation: "automatic cleanup",
-                            status: Self.failureStatus(
-                                for: error,
-                                fallback: "Cleanup failed",
-                                timeout: "Cleanup timed out"
-                            )
-                        )
-                    }
-                } else {
-                    statusMessage = "FreshBrew is ready"
-                }
-
-                await notificationService.postUpdateResult(
-                    updatedCount: updatedCount,
-                    remainingUpdateCount: remainingUpdateCount,
-                    hadFailures: false,
-                    newlyAvailableCount: newlyAvailableCount,
-                    cleanupOutcome: cleanupOutcome
-                )
+                await finalizePendingUpdateWorkflow(hadFailures: false)
             } else {
                 let failureCount = result.failures.count
                 let didTimeOut = result.failures.contains { $0.kind == .timeout }
@@ -451,13 +409,7 @@ final class MenuBarModel: ObservableObject {
                     )
                 }
                 if !administratorAccessRequired {
-                    await notificationService.postUpdateResult(
-                        updatedCount: updatedCount,
-                        remainingUpdateCount: remainingUpdateCount,
-                        hadFailures: true,
-                        newlyAvailableCount: newlyAvailableCount,
-                        cleanupOutcome: nil
-                    )
+                    await finalizePendingUpdateWorkflow(hadFailures: true)
                 }
             }
 
@@ -471,6 +423,9 @@ final class MenuBarModel: ObservableObject {
             } else {
                 requiresAdministratorAccess = false
             }
+            captureSuccessfullyQuitApplications(
+                from: [Self.diagnosticOutput(for: error)]
+            )
             await handleFailure(
                 error,
                 operation: "update packages",
@@ -481,15 +436,7 @@ final class MenuBarModel: ObservableObject {
                 )
             )
             if !requiresAdministratorAccess {
-                await notificationService.postUpdateResult(
-                    updatedCount: pendingUpdatedPackageIDs.count,
-                    remainingUpdateCount: visiblePackages.count,
-                    hadFailures: true,
-                    newlyAvailableCount: visiblePackages.filter {
-                        !knownPackageIDs.contains($0.id)
-                    }.count,
-                    cleanupOutcome: nil
-                )
+                await finalizePendingUpdateWorkflow(hadFailures: true)
             }
             return nil
         }
@@ -497,23 +444,82 @@ final class MenuBarModel: ObservableObject {
 
     private func resetPendingUpdateWorkflow() {
         pendingUpdateKnownPackageIDs = nil
-        pendingUpdatedPackageIDs = []
+        pendingCompletedPackages = []
+        pendingClosedApplicationBundleIdentifiers = []
     }
 
     private func finalizePendingAdministratorWorkflow() async {
+        await finalizePendingUpdateWorkflow(hadFailures: true)
+    }
+
+    private func mergePendingCompletedPackages(_ packages: [UpdatedPackage]) {
+        for package in packages {
+            if let index = pendingCompletedPackages.firstIndex(where: { $0.id == package.id }) {
+                pendingCompletedPackages[index] = package
+            } else {
+                pendingCompletedPackages.append(package)
+            }
+        }
+    }
+
+    private func captureSuccessfullyQuitApplications(from outputs: [String]) {
+        for output in outputs {
+            pendingClosedApplicationBundleIdentifiers.formUnion(
+                HomebrewService.successfullyQuitApplicationBundleIdentifiers(from: output)
+            )
+        }
+    }
+
+    private func finalizePendingUpdateWorkflow(hadFailures: Bool) async {
+        let completedPackages = pendingCompletedPackages
         let knownPackageIDs = pendingUpdateKnownPackageIDs ?? []
         let newlyAvailableCount = visiblePackages.filter {
             !knownPackageIDs.contains($0.id)
         }.count
-        let updatedCount = pendingUpdatedPackageIDs.count
+        var cleanupOutcome: UpdateCleanupOutcome?
 
         administratorAccessRequired = false
+        if !completedPackages.isEmpty {
+            updateHistory = historyStore.append(
+                packages: completedPackages,
+                timestamp: now()
+            )
+        }
+
+        if !hadFailures, autoCleanupEnabled, !completedPackages.isEmpty {
+            activity = .cleaning
+            statusMessage = "Cleaning up…"
+            do {
+                let cleanupResult = try await homebrewService.cleanup(deep: false)
+                cleanupOutcome = .completed(
+                    freedSpace: cleanupResult.freedSpaceDescription
+                )
+                statusMessage = "FreshBrew is ready"
+            } catch {
+                cleanupOutcome = .failed
+                await handleFailure(
+                    error,
+                    operation: "automatic cleanup",
+                    status: Self.failureStatus(
+                        for: error,
+                        fallback: "Cleanup failed",
+                        timeout: "Cleanup timed out"
+                    )
+                )
+            }
+        } else if !hadFailures {
+            statusMessage = "FreshBrew is ready"
+        }
+
+        applicationLifecycleService.reopenApplicationsIfNeeded(
+            bundleIdentifiers: pendingClosedApplicationBundleIdentifiers
+        )
         await notificationService.postUpdateResult(
-            updatedCount: updatedCount,
+            updatedCount: completedPackages.count,
             remainingUpdateCount: visiblePackages.count,
-            hadFailures: true,
+            hadFailures: hadFailures,
             newlyAvailableCount: newlyAvailableCount,
-            cleanupOutcome: nil
+            cleanupOutcome: cleanupOutcome
         )
         resetPendingUpdateWorkflow()
     }
