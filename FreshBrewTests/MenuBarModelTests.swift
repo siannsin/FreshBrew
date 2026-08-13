@@ -901,7 +901,7 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertEqual(entries?.first?.output, diagnosticOutput)
     }
 
-    func testAutomaticCheckPostsOnlyNonzeroUpdateCount() async {
+    func testCheckPostsOnlyNonzeroUpdateCount() async {
         let package = makePackage(named: "ripgrep", kind: .formula)
         let service = FakeHomebrewService(checkResponses: [
             .packages([]),
@@ -916,14 +916,14 @@ final class MenuBarModelTests: XCTestCase {
             notificationService: notifications
         )
 
-        _ = await model.checkUpdates(notifyIfAvailable: true)
-        _ = await model.checkUpdates(notifyIfAvailable: true)
+        _ = await model.checkUpdates()
+        _ = await model.checkUpdates()
 
         let updateCounts = await notifications.updateCounts()
         XCTAssertEqual(updateCounts, [1])
     }
 
-    func testAutomaticCheckNotificationExcludesRememberedSkippedPackages() async {
+    func testCheckNotificationExcludesRememberedSkippedPackages() async {
         let skippedPackage = makePackage(named: "chatgpt", kind: .cask)
         let visiblePackage = makePackage(named: "ripgrep", kind: .formula)
         let service = FakeHomebrewService(checkResponses: [
@@ -939,7 +939,7 @@ final class MenuBarModelTests: XCTestCase {
             notificationService: notifications
         )
 
-        _ = await model.checkUpdates(notifyIfAvailable: true)
+        _ = await model.checkUpdates()
 
         XCTAssertEqual(model.visiblePackages, [visiblePackage])
         let updateCounts = await notifications.updateCounts()

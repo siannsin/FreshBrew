@@ -140,8 +140,7 @@ final class MenuBarModel: ObservableObject {
     }
 
     func checkUpdates(
-        respectMinimumInterval: Bool = false,
-        notifyIfAvailable: Bool = false
+        respectMinimumInterval: Bool = false
     ) async -> Bool {
         guard !isRunning else { return false }
         if respectMinimumInterval, !shouldRunHomebrewCheck() {
@@ -172,9 +171,7 @@ final class MenuBarModel: ObservableObject {
             availablePackages = attachHomepageURLs(to: packages)
             sessionSkippedPackageIDs = []
             statusMessage = "FreshBrew is ready"
-            if notifyIfAvailable {
-                await notificationService.postUpdatesAvailable(count: visiblePackages.count)
-            }
+            await notificationService.postUpdatesAvailable(count: visiblePackages.count)
             return true
         } catch {
             await handleFailure(
@@ -356,10 +353,7 @@ final class MenuBarModel: ObservableObject {
                   self.shouldRunHomebrewCheck() else {
                 return
             }
-            _ = await self.checkUpdates(
-                respectMinimumInterval: true,
-                notifyIfAvailable: true
-            )
+            _ = await self.checkUpdates(respectMinimumInterval: true)
         }
     }
 
@@ -682,10 +676,7 @@ final class MenuBarModel: ObservableObject {
                     return
                 }
                 guard let self else { return }
-                _ = await self.checkUpdates(
-                    respectMinimumInterval: false,
-                    notifyIfAvailable: true
-                )
+                _ = await self.checkUpdates(respectMinimumInterval: false)
             }
         }
     }
