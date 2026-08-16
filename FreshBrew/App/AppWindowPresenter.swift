@@ -10,14 +10,17 @@ final class AppWindowPresenter {
     }
 
     private let model: MenuBarModel
+    private let applicationUpdateCoordinator: ApplicationUpdateCoordinator
     private let packageHomepageService: any PackageHomepageOpening
     private var windowControllers: [WindowID: NSWindowController] = [:]
 
     init(
         model: MenuBarModel,
+        applicationUpdateCoordinator: ApplicationUpdateCoordinator,
         packageHomepageService: any PackageHomepageOpening = PackageHomepageService()
     ) {
         self.model = model
+        self.applicationUpdateCoordinator = applicationUpdateCoordinator
         self.packageHomepageService = packageHomepageService
     }
 
@@ -75,10 +78,12 @@ final class AppWindowPresenter {
         showWindow(
             id: .about,
             title: "About FreshBrew",
-            contentSize: NSSize(width: 340, height: 230),
-            minimumSize: NSSize(width: 340, height: 230),
+            contentSize: NSSize(width: 340, height: 310),
+            minimumSize: NSSize(width: 340, height: 310),
             isResizable: false,
-            content: AnyView(AboutView())
+            content: AnyView(AboutView(
+                applicationUpdateCoordinator: applicationUpdateCoordinator
+            ))
         )
     }
 

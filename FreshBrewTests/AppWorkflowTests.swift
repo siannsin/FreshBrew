@@ -133,16 +133,32 @@ final class AppWorkflowTests: XCTestCase {
 
     func testNotificationActionRouterHandlesOnlyUpdateAllAction() async {
         var calls = 0
-        let router = NotificationActionRouter { calls += 1 }
+        var releaseURLs: [String] = []
+        let router = NotificationActionRouter(
+            updateAll: { calls += 1 },
+            viewRelease: { url in
+                releaseURLs.append(url)
+                return true
+            }
+        )
 
         let ignored = await router.handle(actionIdentifier: "unrelated")
         let handled = await router.handle(
             actionIdentifier: NotificationService.updateAllActionIdentifier
         )
+        let releaseHandled = await router.handle(
+            actionIdentifier: NotificationService.viewReleaseActionIdentifier,
+            releasePageURL: "https://github.com/siannsin/FreshBrew/releases/tag/v0.2.0"
+        )
 
         XCTAssertFalse(ignored)
         XCTAssertTrue(handled)
+        XCTAssertTrue(releaseHandled)
         XCTAssertEqual(calls, 1)
+        XCTAssertEqual(
+            releaseURLs,
+            ["https://github.com/siannsin/FreshBrew/releases/tag/v0.2.0"]
+        )
     }
 
     func testSingleInstanceGuardIgnoresCurrentProcess() {

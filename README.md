@@ -10,6 +10,7 @@ It currently supports Apple Silicon Macs running macOS 14 or later.
 - Optional Greedy Mode for casks that auto-update or use version markers such as `latest`.
 - Check automatically after unlock or on a configurable periodic interval.
 - Receive update notifications with an **Update All** action.
+- Check GitHub Releases for newer FreshBrew versions.
 - Update, temporarily skip, or always skip individual packages.
 - Keep completed packages in update history, including partial batch successes.
 - Run optional automatic cleanup after successful updates, plus manual and deep cleanup.
@@ -64,6 +65,7 @@ FreshBrew does not store administrator passwords.
 - **Check Mode** can run after unlock or periodically. After-unlock mode checks the four-hour threshold first and, when eligible, waits one minute before checking.
 - **Auto Cleanup** runs Homebrew cleanup only after a failure-free update that completed at least one package. It is off by default.
 - **Launch at Login** starts FreshBrew when you sign in.
+- **App Update Checks** checks quietly for newer FreshBrew releases once per day. Manual checks remain available in **About FreshBrew**.
 
 Changing Greedy Mode clears the current update results so the next check uses the newly selected mode consistently.
 

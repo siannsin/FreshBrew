@@ -22,6 +22,9 @@ final class FreshBrewPreferences: @unchecked Sendable {
         static let launchAtLoginEnabled = "launchAtLoginEnabled"
         static let rememberedSkippedPackageIDs = "rememberedSkippedPackageIDs"
         static let lastHomebrewCheckDate = "lastHomebrewCheckDate"
+        static let appUpdateChecksEnabled = "appUpdateChecksEnabled"
+        static let lastSuccessfulAppUpdateCheckDate = "lastSuccessfulAppUpdateCheckDate"
+        static let lastNotifiedAppVersion = "lastNotifiedAppVersion"
     }
 
     private let defaults: any PreferencesStoring
@@ -35,7 +38,8 @@ final class FreshBrewPreferences: @unchecked Sendable {
             Key.periodicCheckInterval: 14_400,
             Key.autoCleanupEnabled: false,
             Key.launchAtLoginEnabled: false,
-            Key.rememberedSkippedPackageIDs: [String]()
+            Key.rememberedSkippedPackageIDs: [String](),
+            Key.appUpdateChecksEnabled: true
         ])
     }
 
@@ -77,6 +81,21 @@ final class FreshBrewPreferences: @unchecked Sendable {
     var lastHomebrewCheckDate: Date? {
         get { read { $0.object(forKey: Key.lastHomebrewCheckDate) as? Date } }
         set { write { $0.set(newValue, forKey: Key.lastHomebrewCheckDate) } }
+    }
+
+    var appUpdateChecksEnabled: Bool {
+        get { read { $0.bool(forKey: Key.appUpdateChecksEnabled) } }
+        set { write { $0.set(newValue, forKey: Key.appUpdateChecksEnabled) } }
+    }
+
+    var lastSuccessfulAppUpdateCheckDate: Date? {
+        get { read { $0.object(forKey: Key.lastSuccessfulAppUpdateCheckDate) as? Date } }
+        set { write { $0.set(newValue, forKey: Key.lastSuccessfulAppUpdateCheckDate) } }
+    }
+
+    var lastNotifiedAppVersion: String? {
+        get { read { $0.string(forKey: Key.lastNotifiedAppVersion) } }
+        set { write { $0.set(newValue, forKey: Key.lastNotifiedAppVersion) } }
     }
 
     private func read<T>(_ operation: (any PreferencesStoring) -> T) -> T {

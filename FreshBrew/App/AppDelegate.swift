@@ -5,6 +5,7 @@ import UserNotifications
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     let model: MenuBarModel
     let updateCoordinator: UpdateActionCoordinator
+    let applicationUpdateCoordinator: ApplicationUpdateCoordinator
 
     private let notificationService: NotificationService
     private let unlockMonitor = SessionUnlockMonitor()
@@ -15,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     override init() {
         let notificationService = NotificationService()
+        let preferences = FreshBrewPreferences()
         let homebrewService = HomebrewService()
         let packageHomepageStore = PackageHomepageStore()
         let packageHomepageService = PackageHomepageService(
@@ -23,22 +25,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         let model = MenuBarModel(
             homebrewService: homebrewService,
+            preferences: preferences,
             packageHomepageStore: packageHomepageStore,
             notificationService: notificationService
         )
         let updateCoordinator = UpdateActionCoordinator(model: model)
+        let applicationUpdateCoordinator = ApplicationUpdateCoordinator(
+            checker: GitHubApplicationUpdateService(
+                installedVersion: AppIdentity.marketingVersion
+            ),
+            preferences: preferences,
+            notificationService: notificationService
+        )
         self.notificationService = notificationService
         self.model = model
         self.updateCoordinator = updateCoordinator
+        self.applicationUpdateCoordinator = applicationUpdateCoordinator
         self.packageHomepageService = packageHomepageService
         windowPresenter = AppWindowPresenter(
             model: model,
+            applicationUpdateCoordinator: applicationUpdateCoordinator,
             packageHomepageService: packageHomepageService
         )
-        notificationRouter = NotificationActionRouter {
-            NSApplication.shared.activate(ignoringOtherApps: true)
-            await updateCoordinator.updateAll()
-        }
+        notificationRouter = NotificationActionRouter(
+            updateAll: {
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                await updateCoordinator.updateAll()
+            },
+            viewRelease: { releasePageURL in
+                applicationUpdateCoordinator.openReleasePage(from: releasePageURL)
+            }
+        )
         super.init()
     }
 
@@ -57,6 +74,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         Task { await notificationService.requestAuthorization() }
         model.startAutomaticChecks()
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+            applicationUpdateCoordinator.startBackgroundChecks()
+        }
         unlockMonitor.start { [weak model] in
             model?.scheduleCheckAfterUnlock()
         }
@@ -67,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         menuBarController = nil
         unlockMonitor.stop()
         model.stopAutomaticChecks()
+        applicationUpdateCoordinator.stopBackgroundChecks()
     }
 
     nonisolated func userNotificationCenter(
@@ -83,11 +104,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let actionIdentifier = response.actionIdentifier
+        let releasePageURL = response.notification.request.content.userInfo[
+            NotificationService.releasePageURLUserInfoKey
+        ] as? String
         completionHandler()
         Task { @MainActor [weak self] in
             if let self {
                 _ = await notificationRouter.handle(
-                    actionIdentifier: actionIdentifier
+                    actionIdentifier: actionIdentifier,
+                    releasePageURL: releasePageURL
                 )
             }
         }

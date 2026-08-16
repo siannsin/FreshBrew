@@ -19,9 +19,19 @@ protocol NotificationServing: Sendable {
     ) async
 }
 
-actor NotificationService: NotificationServing {
+protocol ApplicationUpdateNotificationServing: Sendable {
+    func postApplicationUpdateAvailable(
+        version: String,
+        releasePageURL: URL
+    ) async
+}
+
+actor NotificationService: NotificationServing, ApplicationUpdateNotificationServing {
     static let updatesCategoryIdentifier = "net.siann.freshbrew.updates-available"
     static let updateAllActionIdentifier = "net.siann.freshbrew.update-all"
+    static let applicationUpdateCategoryIdentifier = "net.siann.freshbrew.application-update"
+    static let viewReleaseActionIdentifier = "net.siann.freshbrew.view-release"
+    static let releasePageURLUserInfoKey = "releasePageURL"
 
     private let center: UNUserNotificationCenter
 
@@ -70,6 +80,22 @@ actor NotificationService: NotificationServing {
                 hadFailures: hadFailures,
                 newlyAvailableCount: newlyAvailableCount,
                 cleanupOutcome: cleanupOutcome
+            ),
+            trigger: nil
+        )
+        try? await center.add(request)
+    }
+
+    func postApplicationUpdateAvailable(
+        version: String,
+        releasePageURL: URL
+    ) async {
+        registerCategories()
+        let request = UNNotificationRequest(
+            identifier: "net.siann.freshbrew.application-update-\(version)",
+            content: Self.applicationUpdateContent(
+                version: version,
+                releasePageURL: releasePageURL
             ),
             trigger: nil
         )
@@ -140,6 +166,19 @@ actor NotificationService: NotificationServing {
         return content
     }
 
+    nonisolated static func applicationUpdateContent(
+        version: String,
+        releasePageURL: URL
+    ) -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = AppIdentity.displayName
+        content.body = "Version \(version) is available"
+        content.sound = .default
+        content.categoryIdentifier = applicationUpdateCategoryIdentifier
+        content.userInfo = [releasePageURLUserInfoKey: releasePageURL.absoluteString]
+        return content
+    }
+
     private func registerCategories() {
         let updateAction = UNNotificationAction(
             identifier: Self.updateAllActionIdentifier,
@@ -150,7 +189,16 @@ actor NotificationService: NotificationServing {
             actions: [updateAction],
             intentIdentifiers: []
         )
-        center.setNotificationCategories([category])
+        let viewReleaseAction = UNNotificationAction(
+            identifier: Self.viewReleaseActionIdentifier,
+            title: "View Release"
+        )
+        let applicationUpdateCategory = UNNotificationCategory(
+            identifier: Self.applicationUpdateCategoryIdentifier,
+            actions: [viewReleaseAction],
+            intentIdentifiers: []
+        )
+        center.setNotificationCategories([category, applicationUpdateCategory])
     }
 }
 
@@ -164,5 +212,12 @@ actor NoopNotificationService: NotificationServing {
         hadFailures: Bool,
         newlyAvailableCount: Int,
         cleanupOutcome: UpdateCleanupOutcome?
+    ) async {}
+}
+
+actor NoopApplicationUpdateNotificationService: ApplicationUpdateNotificationServing {
+    func postApplicationUpdateAvailable(
+        version: String,
+        releasePageURL: URL
     ) async {}
 }

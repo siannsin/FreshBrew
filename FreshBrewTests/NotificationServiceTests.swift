@@ -20,6 +20,27 @@ final class NotificationServiceTests: XCTestCase {
         XCTAssertEqual(content.body, "Network unavailable")
     }
 
+    func testApplicationUpdateContentIncludesReleaseActionAndURL() throws {
+        let url = try XCTUnwrap(URL(
+            string: "https://github.com/siannsin/FreshBrew/releases/tag/v0.2.0"
+        ))
+        let content = NotificationService.applicationUpdateContent(
+            version: "0.2.0",
+            releasePageURL: url
+        )
+
+        XCTAssertEqual(content.title, "FreshBrew")
+        XCTAssertEqual(content.body, "Version 0.2.0 is available")
+        XCTAssertEqual(
+            content.categoryIdentifier,
+            NotificationService.applicationUpdateCategoryIdentifier
+        )
+        XCTAssertEqual(
+            content.userInfo[NotificationService.releasePageURLUserInfoKey] as? String,
+            url.absoluteString
+        )
+    }
+
     func testUpdateResultContentIncludesCleanupOutcome() {
         let completed = NotificationService.updateResultContent(
             updatedCount: 2,
