@@ -19,6 +19,8 @@ PROJECT_VERSION="$({
   xcodebuild -project "$ROOT_DIR/$PROJECT_NAME" \
     -scheme "$SCHEME_NAME" \
     -configuration Release \
+    -destination 'generic/platform=macOS' \
+    -derivedDataPath "$DERIVED_DATA" \
     -showBuildSettings 2>/dev/null
 } | awk '/ MARKETING_VERSION = / { print $3; exit }')"
 
@@ -34,7 +36,7 @@ if [[ "$RELEASE_TAG" != "v$VERSION" || "$VERSION" != "$PROJECT_VERSION" ]]; then
   exit 1
 fi
 
-OUTPUT_NAME="$APP_NAME-$VERSION-arm64"
+OUTPUT_NAME="$APP_NAME-$VERSION-universal"
 APP_BUNDLE="$DERIVED_DATA/Build/Products/Release/$APP_NAME.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 DMG_PATH="$DIST_DIR/$OUTPUT_NAME.dmg"
@@ -47,16 +49,18 @@ xcodebuild build \
   -project "$ROOT_DIR/$PROJECT_NAME" \
   -scheme "$SCHEME_NAME" \
   -configuration Release \
-  -destination 'platform=macOS' \
+  -destination 'generic/platform=macOS' \
   -derivedDataPath "$DERIVED_DATA" \
-  ARCHS=arm64 \
+  ARCHS="arm64 x86_64" \
   ONLY_ACTIVE_ARCH=NO \
   CODE_SIGNING_ALLOWED=NO
 
-if [[ "$(lipo -archs "$APP_BINARY")" != "arm64" ]]; then
-  echo "$APP_NAME was not built as an Apple Silicon-only application." >&2
+if ! lipo "$APP_BINARY" -verify_arch arm64 x86_64; then
+  echo "$APP_NAME was not built with both arm64 and x86_64 architectures." >&2
   exit 1
 fi
+
+echo "Built architectures: $(lipo -archs "$APP_BINARY")"
 
 BUILT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_BUNDLE/Contents/Info.plist")"
 if [[ "$BUILT_VERSION" != "$VERSION" ]]; then

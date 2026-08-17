@@ -2,6 +2,17 @@ import XCTest
 @testable import FreshBrew
 
 final class HomebrewParsingTests: XCTestCase {
+    func testHomebrewNotFoundMessageSupportsBothArchitectures() {
+        let error = HomebrewError.executableNotFound(
+            URL(fileURLWithPath: "/usr/local/bin/brew")
+        )
+
+        XCTAssertEqual(
+            error.errorDescription,
+            "Homebrew was not found at /opt/homebrew/bin/brew or /usr/local/bin/brew."
+        )
+    }
+
     func testOutdatedParserRecognizesFormulaeAndCasks() {
         let output = """
         ripgrep (14.1.0) < 14.1.1

@@ -8,7 +8,7 @@ FreshBrew is an independent macOS menu bar application for checking and updating
 - Do not introduce names from projects that inspired FreshBrew into source code or code comments.
 - Attribution belongs in `README.md`, not in source files.
 - The bundle identifier is currently `net.siann.freshbrew`.
-- The current deployment target is Apple Silicon macOS 14 or later.
+- The current deployment target is macOS 14 or later on Apple silicon and Intel Macs.
 - Use the provided FreshBrew artwork for the application and idle menu bar states. Use built-in SF Symbols for transient operation states where appropriate.
 
 ## Architecture

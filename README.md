@@ -7,11 +7,11 @@
 <p align="center">A focused macOS menu bar utility for keeping Homebrew formulae and casks up to date.</p>
 
 <p align="center">
-  <a href="https://github.com/siannsin/FreshBrew/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/siannsin/FreshBrew"></a>
-  <img alt="macOS 14 or later" src="https://img.shields.io/badge/macOS-14%2B-000000?logo=apple">
-  <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-required-000000?logo=apple">
-  <a href="https://github.com/siannsin/FreshBrew/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/siannsin/FreshBrew/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <a href="https://github.com/siannsin/FreshBrew/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/siannsin/FreshBrew?style=flat-square"></a>
+  <img alt="macOS 14 or later" src="https://img.shields.io/badge/macOS-14%2B-black?style=flat-square&logo=apple">
+  <img alt="Swift 6" src="https://img.shields.io/badge/Swift-6-orange?style=flat-square&logo=swift">
+  <a href="https://github.com/siannsin/FreshBrew/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/siannsin/FreshBrew/ci.yml?branch=main&style=flat-square&label=CI"></a>
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square"></a>
 </p>
 
 <p align="center">
@@ -108,13 +108,13 @@ FreshBrew keeps routine Homebrew maintenance close at hand without becoming a fu
 
 ## Requirements
 
-- Apple Silicon Mac
+- Apple Silicon or Intel Mac
 - macOS 14 or later
 - [Homebrew](https://brew.sh/) installed
 
 ## Installation
 
-1. Download `FreshBrew-<version>-arm64.dmg` from the [latest GitHub release](https://github.com/siannsin/FreshBrew/releases/latest).
+1. Download `FreshBrew-<version>-universal.dmg` from the [latest GitHub release](https://github.com/siannsin/FreshBrew/releases/latest).
 2. Open the DMG and drag **FreshBrew** into **Applications**.
 3. Open FreshBrew from the Applications folder.
 
@@ -129,7 +129,7 @@ See [Apple's instructions for opening an app from an unknown developer](https://
 To verify the downloaded DMG against its matching release checksum:
 
 ```bash
-shasum -a 256 -c FreshBrew-<version>-arm64.dmg.sha256
+shasum -a 256 -c FreshBrew-<version>-universal.dmg.sha256
 ```
 
 ## Getting Started
@@ -176,7 +176,7 @@ Detailed Homebrew failures are retained locally for seven days at:
 
 ## Build from Source
 
-Clone the repository and build an Apple Silicon Release app:
+Clone the repository and build a universal Release app:
 
 ```bash
 git clone https://github.com/siannsin/FreshBrew.git
@@ -186,8 +186,10 @@ xcodebuild build \
   -project FreshBrew.xcodeproj \
   -scheme FreshBrew \
   -configuration Release \
-  -destination 'platform=macOS' \
-  -derivedDataPath /private/tmp/freshbrew-build
+  -destination 'generic/platform=macOS' \
+  -derivedDataPath /private/tmp/freshbrew-build \
+  ARCHS="arm64 x86_64" \
+  ONLY_ACTIVE_ARCH=NO
 ```
 
 Run the built app:

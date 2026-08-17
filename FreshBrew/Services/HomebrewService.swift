@@ -49,8 +49,50 @@ private final class NetworkPathProbe: @unchecked Sendable {
     }
 }
 
+enum HomebrewHostArchitecture: Equatable, Sendable {
+    case appleSilicon
+    case intel
+
+    nonisolated static var current: HomebrewHostArchitecture {
+#if arch(arm64)
+        .appleSilicon
+#elseif arch(x86_64)
+        .intel
+#else
+        .appleSilicon
+#endif
+    }
+}
+
+struct HomebrewExecutableLocator: Sendable {
+    nonisolated static let appleSiliconURL = URL(
+        fileURLWithPath: "/opt/homebrew/bin/brew"
+    )
+    nonisolated static let intelURL = URL(
+        fileURLWithPath: "/usr/local/bin/brew"
+    )
+
+    nonisolated static func candidateURLs(
+        for architecture: HomebrewHostArchitecture
+    ) -> [URL] {
+        switch architecture {
+        case .appleSilicon:
+            [appleSiliconURL, intelURL]
+        case .intel:
+            [intelURL, appleSiliconURL]
+        }
+    }
+
+    nonisolated static func executableURL(
+        for architecture: HomebrewHostArchitecture = .current,
+        isExecutable: @Sendable (URL) -> Bool
+    ) -> URL {
+        let candidates = candidateURLs(for: architecture)
+        return candidates.first(where: isExecutable) ?? candidates[0]
+    }
+}
+
 actor HomebrewService {
-    static let defaultExecutableURL = URL(fileURLWithPath: "/opt/homebrew/bin/brew")
     static let metadataTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 60)
     static let outdatedTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 30)
     static let homepageTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 5)
@@ -66,14 +108,16 @@ actor HomebrewService {
     private let networkAvailabilityChecker: any NetworkAvailabilityChecking
 
     init(
-        executableURL: URL = HomebrewService.defaultExecutableURL,
+        executableURL: URL? = nil,
         runner: any CommandRunning = SystemCommandRunner(),
         networkAvailabilityChecker: any NetworkAvailabilityChecking = SystemNetworkAvailabilityChecker(),
         executableIsAvailable: @escaping @Sendable (URL) -> Bool = {
             FileManager.default.isExecutableFile(atPath: $0.path)
         }
     ) {
-        self.executableURL = executableURL
+        self.executableURL = executableURL ?? HomebrewExecutableLocator.executableURL(
+            isExecutable: executableIsAvailable
+        )
         self.runner = runner
         self.networkAvailabilityChecker = networkAvailabilityChecker
         self.executableIsAvailable = executableIsAvailable

@@ -3,6 +3,55 @@ import XCTest
 @testable import FreshBrew
 
 final class HomebrewServiceTests: XCTestCase {
+    func testCurrentHomebrewHostArchitectureMatchesCompiledSlice() {
+#if arch(arm64)
+        XCTAssertEqual(HomebrewHostArchitecture.current, .appleSilicon)
+#elseif arch(x86_64)
+        XCTAssertEqual(HomebrewHostArchitecture.current, .intel)
+#endif
+    }
+
+    func testHomebrewExecutableCandidatesPreferTheNativeArchitecture() {
+        XCTAssertEqual(
+            HomebrewExecutableLocator.candidateURLs(for: .appleSilicon).map(\.path),
+            ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
+        )
+        XCTAssertEqual(
+            HomebrewExecutableLocator.candidateURLs(for: .intel).map(\.path),
+            ["/usr/local/bin/brew", "/opt/homebrew/bin/brew"]
+        )
+    }
+
+    func testHomebrewExecutableLocatorFallsBackToTheAvailableStandardPath() {
+        let resolvedURL = HomebrewExecutableLocator.executableURL(
+            for: .appleSilicon,
+            isExecutable: { $0.path == "/usr/local/bin/brew" }
+        )
+
+        XCTAssertEqual(resolvedURL.path, "/usr/local/bin/brew")
+    }
+
+    func testServiceUsesDiscoveredHomebrewExecutable() async throws {
+        let runner = StubCommandRunner(results: [
+            CommandResult(exitCode: 0, standardOutput: "", standardError: "")
+        ])
+        let service = HomebrewService(
+            runner: runner,
+            networkAvailabilityChecker: StubNetworkAvailabilityChecker(
+                isAvailable: true
+            ),
+            executableIsAvailable: { $0.path == "/usr/local/bin/brew" }
+        )
+
+        _ = try await service.checkOutdated(
+            greedy: false,
+            refreshMetadata: false
+        )
+
+        let requests = await runner.recordedRequests()
+        XCTAssertEqual(requests.first?.executableURL.path, "/usr/local/bin/brew")
+    }
+
     func testPackageHomepageUsesKindSpecificHomebrewInfoMetadata() async throws {
         let runner = StubCommandRunner(results: [
             CommandResult(

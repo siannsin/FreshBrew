@@ -14,7 +14,7 @@ extension HomebrewError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .executableNotFound:
-            return "Homebrew was not found at /opt/homebrew/bin/brew."
+            return "Homebrew was not found at /opt/homebrew/bin/brew or /usr/local/bin/brew."
         case let .commandFailed(failure):
             if Self.outputIndicatesNetworkFailure(failure.output) {
                 return "Network unavailable. Check your connection and try again."
