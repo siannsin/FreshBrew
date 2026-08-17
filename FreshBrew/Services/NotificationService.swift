@@ -1,5 +1,5 @@
 import Foundation
-import UserNotifications
+@preconcurrency import UserNotifications
 
 enum UpdateCleanupOutcome: Sendable, Equatable {
     case completed(freedSpace: String?)
