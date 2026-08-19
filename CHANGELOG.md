@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.2.0] - August 2026
+
+### Added
+
+- Supports both Apple silicon and Intel Macs.
+- Checks for newer FreshBrew releases and notifies you when one is available.
+- Shows a notification when a manual check finds Homebrew updates.
+- Lets you open package homepages from update lists and history.
+- Reports the result of Cleanup and Deep Cleanup, including reclaimed storage.
+
+### Improved
+
+- Checks and updates now consistently follow Greedy Mode.
+- Better handling when an update requires your password.
+- Successful packages remain in history when only part of an update finishes.
+- More reliable handling of applications Homebrew closes during updates.
+- Clearer messages when Homebrew cannot connect or complete an operation.
+- Better recovery for casks that Homebrew cannot update normally.
+- Recent error details are kept for seven days to help with troubleshooting.
+
 ## [0.1.0] - July 2026
 
 ### Added
@@ -17,4 +37,5 @@
 - Seven-day diagnostic retention for Homebrew failures without storing administrator passwords.
 - Launch-at-login support.
 
+[0.2.0]: https://github.com/siannsin/FreshBrew/releases/tag/v0.2.0
 [0.1.0]: https://github.com/siannsin/FreshBrew/releases/tag/v0.1.0
