@@ -104,6 +104,129 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertEqual(model.updateAllLabel, "Update All (Greedy)")
     }
 
+    func testManualCleanupPostsSuccessfulResultNotification() async {
+        let cleanupResult = CleanupResult(
+            isDeepCleanup: false,
+            output: "This operation has freed approximately 42MB of disk space.",
+            completedAt: Date(timeIntervalSince1970: 500)
+        )
+        let service = FakeHomebrewService(
+            cleanupResponses: [.success(cleanupResult)]
+        )
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+
+        let result = await model.cleanup(deep: false)
+
+        let cleanupDeepValues = await service.recordedCleanupDeepValues()
+        let cleanupResults = await notifications.cleanupResults()
+        let cleanupFailures = await notifications.cleanupFailures()
+        XCTAssertEqual(result, cleanupResult)
+        XCTAssertEqual(cleanupDeepValues, [false])
+        XCTAssertEqual(cleanupResults, [cleanupResult])
+        XCTAssertTrue(cleanupFailures.isEmpty)
+        XCTAssertEqual(model.statusMessage, "FreshBrew is ready")
+        XCTAssertEqual(model.activity, .idle)
+    }
+
+    func testManualDeepCleanupWithoutFreedSpaceStaysSilent() async {
+        let cleanupResult = CleanupResult(
+            isDeepCleanup: true,
+            output: "Pruned 0 symbolic links and 2 directories.",
+            completedAt: Date(timeIntervalSince1970: 500)
+        )
+        let service = FakeHomebrewService(
+            cleanupResponses: [.success(cleanupResult)]
+        )
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+
+        let result = await model.cleanup(deep: true)
+
+        let cleanupDeepValues = await service.recordedCleanupDeepValues()
+        let cleanupResults = await notifications.cleanupResults()
+        let cleanupFailures = await notifications.cleanupFailures()
+        XCTAssertEqual(result, cleanupResult)
+        XCTAssertEqual(cleanupDeepValues, [true])
+        XCTAssertTrue(cleanupResults.isEmpty)
+        XCTAssertTrue(cleanupFailures.isEmpty)
+        XCTAssertEqual(model.activity, .idle)
+    }
+
+    func testManualCleanupTimeoutPostsFailureNotificationAndKeepsDiagnosticLog() async {
+        let failure = HomebrewError.timedOut(
+            operation: "cleanup",
+            seconds: 300,
+            output: "cleanup command timed out"
+        )
+        let service = FakeHomebrewService(
+            cleanupResponses: [.failure(failure)]
+        )
+        let notifications = FakeNotificationService()
+        let referenceDate = Date(timeIntervalSince1970: 500)
+        let dependencies = makeDependencies(now: referenceDate)
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+
+        let result = await model.cleanup(deep: false)
+
+        XCTAssertNil(result)
+        let failures = await notifications.cleanupFailures()
+        XCTAssertEqual(failures.count, 1)
+        XCTAssertFalse(failures[0].deep)
+        XCTAssertEqual(failures[0].message, "Cleanup timed out after 5 minutes.")
+        XCTAssertEqual(model.statusMessage, "Cleanup timed out")
+        let entries = try? await dependencies.errorLogStore.entries(referenceDate: referenceDate)
+        XCTAssertEqual(entries?.first?.operation, "cleanup")
+        XCTAssertEqual(
+            entries?.first?.output,
+            "cleanup command timed out\nFreshBrew stopped cleanup after 300 seconds."
+        )
+        XCTAssertEqual(model.activity, .idle)
+    }
+
+    func testManualDeepCleanupNetworkFailurePostsFailureNotification() async {
+        let service = FakeHomebrewService(
+            cleanupResponses: [.failure(.networkUnavailable)]
+        )
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+
+        let result = await model.cleanup(deep: true)
+
+        XCTAssertNil(result)
+        let failures = await notifications.cleanupFailures()
+        XCTAssertEqual(failures.count, 1)
+        XCTAssertTrue(failures[0].deep)
+        XCTAssertEqual(
+            failures[0].message,
+            "Network unavailable. Check your connection and try again."
+        )
+        XCTAssertEqual(model.activity, .idle)
+    }
+
     func testChangingGreedyModeClearsStalePackagesAndSessionSkips() async {
         let package = makePackage(named: "ripgrep", kind: .formula)
         let service = FakeHomebrewService(checkResponses: [.packages([package])])
@@ -1423,6 +1546,8 @@ private struct UpdateCompletion: Equatable, Sendable {
 private actor FakeNotificationService: NotificationServing {
     private var counts: [Int] = []
     private var failures: [String] = []
+    private var cleanupResultValues: [CleanupResult] = []
+    private var cleanupFailureValues: [(deep: Bool, message: String)] = []
     private var completionValues: [UpdateCompletion] = []
 
     func requestAuthorization() async {}
@@ -1434,6 +1559,15 @@ private actor FakeNotificationService: NotificationServing {
 
     func postCheckFailure(message: String) async {
         failures.append(message)
+    }
+
+    func postCleanupResult(_ result: CleanupResult) async {
+        guard result.freedSpaceDescription != nil else { return }
+        cleanupResultValues.append(result)
+    }
+
+    func postCleanupFailure(deep: Bool, message: String) async {
+        cleanupFailureValues.append((deep: deep, message: message))
     }
 
     func postUpdateResult(
@@ -1455,6 +1589,8 @@ private actor FakeNotificationService: NotificationServing {
 
     func updateCounts() -> [Int] { counts }
     func failureMessages() -> [String] { failures }
+    func cleanupResults() -> [CleanupResult] { cleanupResultValues }
+    func cleanupFailures() -> [(deep: Bool, message: String)] { cleanupFailureValues }
     func completions() -> [UpdateCompletion] { completionValues }
 }
 

@@ -50,7 +50,10 @@ final class StatusIconAnimator {
         case .updating:
             showAnimatedSymbol("arrow.down", weight: .semibold)
             startUpdatingAnimation()
-        case .idle, .cleaning:
+        case .cleaning:
+            showAnimatedSymbol("arrow.triangle.2.circlepath", weight: .regular)
+            startCheckingAnimation()
+        case .idle:
             showIdleIcon(hasAvailableUpdates: hasAvailableUpdates)
         }
     }

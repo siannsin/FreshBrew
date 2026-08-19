@@ -10,6 +10,8 @@ protocol NotificationServing: Sendable {
     func requestAuthorization() async
     func postUpdatesAvailable(count: Int) async
     func postCheckFailure(message: String) async
+    func postCleanupResult(_ result: CleanupResult) async
+    func postCleanupFailure(deep: Bool, message: String) async
     func postUpdateResult(
         updatedCount: Int,
         remainingUpdateCount: Int,
@@ -59,6 +61,25 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
         let request = UNNotificationRequest(
             identifier: "net.siann.freshbrew.check-failure-\(UUID().uuidString)",
             content: Self.checkFailureContent(message: message),
+            trigger: nil
+        )
+        try? await center.add(request)
+    }
+
+    func postCleanupResult(_ result: CleanupResult) async {
+        guard result.freedSpaceDescription != nil else { return }
+        let request = UNNotificationRequest(
+            identifier: "net.siann.freshbrew.cleanup-result-\(UUID().uuidString)",
+            content: Self.cleanupResultContent(result),
+            trigger: nil
+        )
+        try? await center.add(request)
+    }
+
+    func postCleanupFailure(deep: Bool, message: String) async {
+        let request = UNNotificationRequest(
+            identifier: "net.siann.freshbrew.cleanup-failure-\(UUID().uuidString)",
+            content: Self.cleanupFailureContent(deep: deep, message: message),
             trigger: nil
         )
         try? await center.add(request)
@@ -115,6 +136,34 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
         let content = UNMutableNotificationContent()
         content.title = "FreshBrew check failed"
         content.body = message
+        content.sound = .default
+        return content
+    }
+
+    nonisolated static func cleanupResultContent(
+        _ result: CleanupResult
+    ) -> UNMutableNotificationContent {
+        let operation = result.isDeepCleanup ? "Deep Cleanup" : "Cleanup"
+        let content = UNMutableNotificationContent()
+        content.title = AppIdentity.displayName
+        content.body = [
+            "\(operation) completed",
+            result.freedSpaceDescription.map { "\($0) freed" }
+        ]
+        .compactMap { $0 }
+        .joined(separator: " · ")
+        content.sound = .default
+        return content
+    }
+
+    nonisolated static func cleanupFailureContent(
+        deep: Bool,
+        message: String
+    ) -> UNMutableNotificationContent {
+        let operation = deep ? "Deep Cleanup" : "Cleanup"
+        let content = UNMutableNotificationContent()
+        content.title = AppIdentity.displayName
+        content.body = "\(operation) failed · \(message)"
         content.sound = .default
         return content
     }
@@ -206,6 +255,8 @@ actor NoopNotificationService: NotificationServing {
     func requestAuthorization() async {}
     func postUpdatesAvailable(count: Int) async {}
     func postCheckFailure(message: String) async {}
+    func postCleanupResult(_ result: CleanupResult) async {}
+    func postCleanupFailure(deep: Bool, message: String) async {}
     func postUpdateResult(
         updatedCount: Int,
         remainingUpdateCount: Int,

@@ -281,6 +281,7 @@ final class MenuBarModel: ObservableObject {
         do {
             let result = try await homebrewService.cleanup(deep: deep)
             statusMessage = "FreshBrew is ready"
+            await notificationService.postCleanupResult(result)
             return result
         } catch {
             await handleFailure(
@@ -291,6 +292,10 @@ final class MenuBarModel: ObservableObject {
                     fallback: "Cleanup failed",
                     timeout: "Cleanup timed out"
                 )
+            )
+            await notificationService.postCleanupFailure(
+                deep: deep,
+                message: lastErrorMessage ?? "Homebrew could not complete the cleanup."
             )
             return nil
         }
