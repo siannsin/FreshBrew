@@ -92,6 +92,52 @@ struct HomebrewExecutableLocator: Sendable {
     }
 }
 
+private struct HomebrewOutdatedResponse: Decodable, Sendable {
+    struct Formula: Decodable, Sendable {
+        let name: String
+        let installedVersions: [String]
+        let currentVersion: String
+
+        private enum CodingKeys: String, CodingKey {
+            case name
+            case installedVersions = "installed_versions"
+            case currentVersion = "current_version"
+        }
+    }
+
+    struct Cask: Decodable, Sendable {
+        let name: String
+        let installedVersions: [String]
+        let currentVersion: String
+
+        private enum CodingKeys: String, CodingKey {
+            case name
+            case installedVersions = "installed_versions"
+            case currentVersion = "current_version"
+        }
+    }
+
+    let formulae: [Formula]
+    let casks: [Cask]
+}
+
+private enum HomebrewOutdatedJSONError: LocalizedError {
+    case emptyName(HomebrewPackageKind)
+    case missingInstalledVersion(HomebrewPackageKind, String)
+    case emptyCurrentVersion(HomebrewPackageKind, String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .emptyName(kind):
+            "Homebrew returned an unnamed outdated \(kind.rawValue)."
+        case let .missingInstalledVersion(kind, name):
+            "Homebrew returned no installed version for \(kind.rawValue) \(name)."
+        case let .emptyCurrentVersion(kind, name):
+            "Homebrew returned no current version for \(kind.rawValue) \(name)."
+        }
+    }
+}
+
 actor HomebrewService {
     static let metadataTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 60)
     static let outdatedTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 30)
@@ -146,18 +192,18 @@ actor HomebrewService {
             timeoutPolicy: Self.outdatedTimeoutPolicy
         )
         try requireSuccess(outdatedResult, operation: "check outdated packages")
-        let packages = Self.parseOutdatedOutput(outdatedResult.standardOutput)
-        if packages.isEmpty,
-           !outdatedResult.standardOutput.trimmingCharacters(
-               in: .whitespacesAndNewlines
-           ).isEmpty {
+        do {
+            return try Self.parseOutdatedJSON(outdatedResult.standardOutput)
+        } catch {
+            let decodingDetail = "FreshBrew could not decode Homebrew's outdated JSON: \(error)"
             throw HomebrewError.commandFailed(HomebrewCommandFailure(
-                operation: "check outdated packages",
+                operation: "decode outdated packages",
                 exitCode: outdatedResult.exitCode,
-                output: outdatedResult.combinedOutput
+                output: [outdatedResult.combinedOutput, decodingDetail]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n")
             ))
         }
-        return packages
     }
 
     func packageHomepageURL(
@@ -462,7 +508,7 @@ actor HomebrewService {
     }
 
     nonisolated static func outdatedArguments(greedy: Bool) -> [String] {
-        var arguments = ["outdated", "--verbose"]
+        var arguments = ["outdated", "--json=v2"]
         if greedy {
             arguments.append("--greedy")
         }
@@ -482,41 +528,61 @@ actor HomebrewService {
         return arguments
     }
 
-    nonisolated static func parseOutdatedOutput(_ output: String) -> [HomebrewPackage] {
-        let pattern = #"^(.+?)\s+\((.+)\)\s*(<|!=)\s*(.+)$"#
-        guard let expression = try? NSRegularExpression(pattern: pattern) else {
-            return []
-        }
+    nonisolated static func parseOutdatedJSON(_ output: String) throws -> [HomebrewPackage] {
+        let response = try JSONDecoder().decode(
+            HomebrewOutdatedResponse.self,
+            from: Data(output.utf8)
+        )
 
-        var packages: [HomebrewPackage] = []
-        var seenIDs = Set<String>()
-
-        for rawLine in output.components(separatedBy: .newlines) {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            let range = NSRange(line.startIndex..<line.endIndex, in: line)
-            guard let match = expression.firstMatch(in: line, range: range),
-                  match.numberOfRanges == 5,
-                  let nameRange = Range(match.range(at: 1), in: line),
-                  let installedRange = Range(match.range(at: 2), in: line),
-                  let separatorRange = Range(match.range(at: 3), in: line),
-                  let availableRange = Range(match.range(at: 4), in: line) else {
-                continue
-            }
-
-            let separator = String(line[separatorRange])
-            let package = HomebrewPackage(
-                name: String(line[nameRange]).trimmingCharacters(in: .whitespaces),
-                installedVersion: String(line[installedRange]).trimmingCharacters(in: .whitespaces),
-                availableVersion: String(line[availableRange]).trimmingCharacters(in: .whitespaces),
-                kind: separator == "!=" ? .cask : .formula
+        let formulae = try response.formulae.map {
+            try outdatedPackage(
+                name: $0.name,
+                installedVersions: $0.installedVersions,
+                currentVersion: $0.currentVersion,
+                kind: .formula
             )
+        }
+        let casks = try response.casks.map {
+            try outdatedPackage(
+                name: $0.name,
+                installedVersions: $0.installedVersions,
+                currentVersion: $0.currentVersion,
+                kind: .cask
+            )
+        }
+        return formulae + casks
+    }
 
-            if seenIDs.insert(package.id).inserted {
-                packages.append(package)
-            }
+    private nonisolated static func outdatedPackage(
+        name: String,
+        installedVersions: [String],
+        currentVersion: String,
+        kind: HomebrewPackageKind
+    ) throws -> HomebrewPackage {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            throw HomebrewOutdatedJSONError.emptyName(kind)
         }
 
-        return packages
+        let installedVersions = installedVersions.map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard !installedVersions.isEmpty,
+              installedVersions.allSatisfy({ !$0.isEmpty }) else {
+            throw HomebrewOutdatedJSONError.missingInstalledVersion(kind, name)
+        }
+
+        let currentVersion = currentVersion.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !currentVersion.isEmpty else {
+            throw HomebrewOutdatedJSONError.emptyCurrentVersion(kind, name)
+        }
+
+        return HomebrewPackage(
+            name: name,
+            installedVersion: installedVersions.joined(separator: ", "),
+            availableVersion: currentVersion,
+            kind: kind
+        )
     }
 
     nonisolated static func casksNeedingForcedReinstall(from output: String) -> [String] {

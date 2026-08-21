@@ -13,18 +13,56 @@ final class HomebrewParsingTests: XCTestCase {
         )
     }
 
-    func testOutdatedParserRecognizesFormulaeAndCasks() {
+    func testOutdatedJSONParserReturnsEmptyPackageList() throws {
+        let output = #"{"formulae":[],"casks":[]}"#
+
+        XCTAssertEqual(try HomebrewService.parseOutdatedJSON(output), [])
+    }
+
+    func testOutdatedJSONParserPreservesFormulaAndCaskOrdering() throws {
         let output = """
-        ripgrep (14.1.0) < 14.1.1
-        visual-studio-code (1.101.0) != 1.102.2
-        ignored summary text
+        {
+          "formulae": [
+            {
+              "name": "ripgrep",
+              "installed_versions": ["14.1.0", "14.1.0_1"],
+              "current_version": "14.1.1",
+              "pinned": false,
+              "future_field": "ignored"
+            },
+            {
+              "name": "wget",
+              "installed_versions": ["1.24.5"],
+              "current_version": "1.25.0"
+            }
+          ],
+          "casks": [
+            {
+              "name": "visual-studio-code",
+              "installed_versions": ["1.101.0"],
+              "current_version": "1.102.2"
+            },
+            {
+              "name": "chatgpt",
+              "installed_versions": ["1.22209.0,77c938bac"],
+              "current_version": "1.22209.3,babe11577"
+            }
+          ],
+          "future_top_level_field": true
+        }
         """
 
-        XCTAssertEqual(HomebrewService.parseOutdatedOutput(output), [
+        XCTAssertEqual(try HomebrewService.parseOutdatedJSON(output), [
             HomebrewPackage(
                 name: "ripgrep",
-                installedVersion: "14.1.0",
+                installedVersion: "14.1.0, 14.1.0_1",
                 availableVersion: "14.1.1",
+                kind: .formula
+            ),
+            HomebrewPackage(
+                name: "wget",
+                installedVersion: "1.24.5",
+                availableVersion: "1.25.0",
                 kind: .formula
             ),
             HomebrewPackage(
@@ -32,27 +70,33 @@ final class HomebrewParsingTests: XCTestCase {
                 installedVersion: "1.101.0",
                 availableVersion: "1.102.2",
                 kind: .cask
+            ),
+            HomebrewPackage(
+                name: "chatgpt",
+                installedVersion: "1.22209.0,77c938bac",
+                availableVersion: "1.22209.3,babe11577",
+                kind: .cask
             )
         ])
     }
 
-    func testOutdatedParserDeduplicatesPackageIdentity() {
-        let output = """
-        ripgrep (14.1.0) < 14.1.1
-        ripgrep (14.1.0) < 14.1.1
-        """
+    func testOutdatedJSONParserRejectsMissingRequiredFieldsAndMalformedJSON() {
+        let missingField = #"{"formulae":[{"name":"ripgrep","installed_versions":["14.1.0"]}],"casks":[]}"#
+        let emptyInstalledVersions = #"{"formulae":[],"casks":[{"name":"chatgpt","installed_versions":[],"current_version":"2.0"}]}"#
 
-        XCTAssertEqual(HomebrewService.parseOutdatedOutput(output).count, 1)
+        XCTAssertThrowsError(try HomebrewService.parseOutdatedJSON(missingField))
+        XCTAssertThrowsError(try HomebrewService.parseOutdatedJSON(emptyInstalledVersions))
+        XCTAssertThrowsError(try HomebrewService.parseOutdatedJSON("not json"))
     }
 
     func testGreedyArgumentsAreAddedOnlyWhenEnabled() {
         XCTAssertEqual(
             HomebrewService.outdatedArguments(greedy: false),
-            ["outdated", "--verbose"]
+            ["outdated", "--json=v2"]
         )
         XCTAssertEqual(
             HomebrewService.outdatedArguments(greedy: true),
-            ["outdated", "--verbose", "--greedy"]
+            ["outdated", "--json=v2", "--greedy"]
         )
     }
 

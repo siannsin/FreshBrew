@@ -2,6 +2,55 @@ import Foundation
 import XCTest
 @testable import FreshBrew
 
+private typealias OutdatedFixturePackage = (
+    name: String,
+    installedVersions: [String],
+    currentVersion: String
+)
+
+private struct OutdatedFixture: Encodable {
+    struct Package: Encodable {
+        let name: String
+        let installedVersions: [String]
+        let currentVersion: String
+
+        private enum CodingKeys: String, CodingKey {
+            case name
+            case installedVersions = "installed_versions"
+            case currentVersion = "current_version"
+        }
+    }
+
+    let formulae: [Package]
+    let casks: [Package]
+}
+
+private func outdatedJSON(
+    formulae: [OutdatedFixturePackage] = [],
+    casks: [OutdatedFixturePackage] = []
+) -> String {
+    let fixture = OutdatedFixture(
+        formulae: formulae.map {
+            OutdatedFixture.Package(
+                name: $0.name,
+                installedVersions: $0.installedVersions,
+                currentVersion: $0.currentVersion
+            )
+        },
+        casks: casks.map {
+            OutdatedFixture.Package(
+                name: $0.name,
+                installedVersions: $0.installedVersions,
+                currentVersion: $0.currentVersion
+            )
+        }
+    )
+    let data = try! JSONEncoder().encode(fixture)
+    return String(decoding: data, as: UTF8.self)
+}
+
+private let emptyOutdatedJSON = outdatedJSON()
+
 final class HomebrewServiceTests: XCTestCase {
     func testCurrentHomebrewHostArchitectureMatchesCompiledSlice() {
 #if arch(arm64)
@@ -33,7 +82,11 @@ final class HomebrewServiceTests: XCTestCase {
 
     func testServiceUsesDiscoveredHomebrewExecutable() async throws {
         let runner = StubCommandRunner(results: [
-            CommandResult(exitCode: 0, standardOutput: "", standardError: "")
+            CommandResult(
+                exitCode: 0,
+                standardOutput: emptyOutdatedJSON,
+                standardError: ""
+            )
         ])
         let service = HomebrewService(
             runner: runner,
@@ -153,7 +206,9 @@ final class HomebrewServiceTests: XCTestCase {
             CommandResult(exitCode: 0, standardOutput: "updated", standardError: ""),
             CommandResult(
                 exitCode: 0,
-                standardOutput: "firefox (1.0) != 2.0\n",
+                standardOutput: outdatedJSON(
+                    casks: [("firefox", ["1.0"], "2.0")]
+                ),
                 standardError: ""
             )
         ])
@@ -165,7 +220,7 @@ final class HomebrewServiceTests: XCTestCase {
         let requests = await runner.recordedRequests()
         XCTAssertEqual(requests.map(\.arguments), [
             ["update"],
-            ["outdated", "--verbose", "--greedy"]
+            ["outdated", "--json=v2", "--greedy"]
         ])
         XCTAssertEqual(requests.map(\.timeoutPolicy), [
             HomebrewService.metadataTimeoutPolicy,
@@ -192,6 +247,31 @@ final class HomebrewServiceTests: XCTestCase {
         XCTAssertTrue(requests.isEmpty)
     }
 
+    func testCheckOutdatedTreatsMalformedJSONAsCommandFailure() async throws {
+        let runner = StubCommandRunner(results: [
+            CommandResult(
+                exitCode: 0,
+                standardOutput: "unexpected output",
+                standardError: ""
+            )
+        ])
+        let service = makeService(runner: runner)
+
+        do {
+            _ = try await service.checkOutdated(
+                greedy: false,
+                refreshMetadata: false
+            )
+            XCTFail("Expected malformed JSON to fail the check")
+        } catch let HomebrewError.commandFailed(failure) {
+            XCTAssertEqual(failure.operation, "decode outdated packages")
+            XCTAssertTrue(failure.output.contains("unexpected output"))
+            XCTAssertTrue(failure.output.contains("could not decode"))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testUpdatePreservesPartialSuccessAfterCommandFailure() async throws {
         let first = package(named: "first", kind: .formula)
         let second = package(named: "second", kind: .formula)
@@ -203,7 +283,9 @@ final class HomebrewServiceTests: XCTestCase {
             ),
             CommandResult(
                 exitCode: 0,
-                standardOutput: "second (1.0) < 2.0\n",
+                standardOutput: outdatedJSON(
+                    formulae: [("second", ["1.0"], "2.0")]
+                ),
                 standardError: ""
             )
         ])
@@ -220,7 +302,7 @@ final class HomebrewServiceTests: XCTestCase {
         let requests = await runner.recordedRequests()
         XCTAssertEqual(requests.map(\.arguments), [
             ["upgrade", "--formula", "first", "second"],
-            ["outdated", "--verbose"]
+            ["outdated", "--json=v2"]
         ])
         XCTAssertEqual(requests.map(\.timeoutPolicy), [
             HomebrewService.packageTimeoutPolicy,
@@ -236,7 +318,11 @@ final class HomebrewServiceTests: XCTestCase {
                 standardOutput: "==> Upgrading Cask chatgpt\n",
                 standardError: "installer reported an error"
             ),
-            CommandResult(exitCode: 0, standardOutput: "", standardError: "")
+            CommandResult(
+                exitCode: 0,
+                standardOutput: emptyOutdatedJSON,
+                standardError: ""
+            )
         ])
         let service = makeService(runner: runner)
 
@@ -261,7 +347,9 @@ final class HomebrewServiceTests: XCTestCase {
             )),
             .result(CommandResult(
                 exitCode: 0,
-                standardOutput: "large-cask (1.0) != 2.0\n",
+                standardOutput: outdatedJSON(
+                    casks: [("large-cask", ["1.0"], "2.0")]
+                ),
                 standardError: ""
             ))
         ])
@@ -277,7 +365,7 @@ final class HomebrewServiceTests: XCTestCase {
         let requests = await runner.recordedRequests()
         XCTAssertEqual(requests.map(\.arguments), [
             ["upgrade", "--cask", "--greedy", "large-cask"],
-            ["outdated", "--verbose", "--greedy"]
+            ["outdated", "--json=v2", "--greedy"]
         ])
     }
 
@@ -290,7 +378,11 @@ final class HomebrewServiceTests: XCTestCase {
                 standardError: ""
             ),
             CommandResult(exitCode: 0, standardOutput: "reinstalled", standardError: ""),
-            CommandResult(exitCode: 0, standardOutput: "", standardError: "")
+            CommandResult(
+                exitCode: 0,
+                standardOutput: emptyOutdatedJSON,
+                standardError: ""
+            )
         ])
         let service = makeService(runner: runner)
 
@@ -302,7 +394,7 @@ final class HomebrewServiceTests: XCTestCase {
         XCTAssertEqual(requests.map(\.arguments), [
             ["upgrade", "--cask", "--greedy", "duckduckgo"],
             ["reinstall", "--cask", "--force", "duckduckgo"],
-            ["outdated", "--verbose", "--greedy"]
+            ["outdated", "--json=v2", "--greedy"]
         ])
     }
 
@@ -386,7 +478,11 @@ final class HomebrewServiceTests: XCTestCase {
         let package = package(named: "firefox", kind: .cask)
         let runner = StubCommandRunner(results: [
             CommandResult(exitCode: 0, standardOutput: "updated", standardError: ""),
-            CommandResult(exitCode: 0, standardOutput: "", standardError: "")
+            CommandResult(
+                exitCode: 0,
+                standardOutput: emptyOutdatedJSON,
+                standardError: ""
+            )
         ])
         let service = makeService(runner: runner)
 
