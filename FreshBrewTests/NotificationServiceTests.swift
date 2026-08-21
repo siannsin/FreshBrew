@@ -72,7 +72,7 @@ final class NotificationServiceTests: XCTestCase {
         XCTAssertEqual(deepCleanupContent.title, "FreshBrew")
         XCTAssertEqual(
             deepCleanupContent.body,
-            "Deep Cleanup failed · Deep Cleanup timed out after 5 minutes."
+            "Deep Cleanup timed out after 5 minutes."
         )
     }
 

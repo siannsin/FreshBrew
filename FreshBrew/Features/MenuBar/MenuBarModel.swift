@@ -281,7 +281,9 @@ final class MenuBarModel: ObservableObject {
         do {
             let result = try await homebrewService.cleanup(deep: deep)
             statusMessage = "FreshBrew is ready"
-            await notificationService.postCleanupResult(result)
+            if result.freedSpaceDescription != nil {
+                await notificationService.postCleanupResult(result)
+            }
             return result
         } catch {
             await handleFailure(

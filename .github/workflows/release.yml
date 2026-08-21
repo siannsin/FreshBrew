@@ -35,9 +35,33 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           VERSION="${RELEASE_TAG#v}"
+          NOTES_FILE="$(mktemp)"
+          trap 'rm -f "$NOTES_FILE"' EXIT
+
+          awk -v version="$VERSION" '
+            BEGIN {
+              header = "## [" version "]"
+            }
+            !found && ($0 == header || index($0, header " - ") == 1) {
+              found = 1
+              next
+            }
+            found && index($0, "## [") == 1 {
+              exit
+            }
+            found {
+              print
+            }
+          ' CHANGELOG.md > "$NOTES_FILE"
+
+          if [[ ! -s "$NOTES_FILE" ]] || ! grep -q '[^[:space:]]' "$NOTES_FILE"; then
+            echo "No changelog section found for version $VERSION." >&2
+            exit 1
+          fi
+
           gh release create "$RELEASE_TAG" \
             "dist/FreshBrew-$VERSION-universal.dmg" \
             "dist/FreshBrew-$VERSION-universal.dmg.sha256" \
             --verify-tag \
-            --title "FreshBrew $VERSION" \
-            --generate-notes
+            --title "$RELEASE_TAG" \
+            --notes-file "$NOTES_FILE"

@@ -1562,7 +1562,6 @@ private actor FakeNotificationService: NotificationServing {
     }
 
     func postCleanupResult(_ result: CleanupResult) async {
-        guard result.freedSpaceDescription != nil else { return }
         cleanupResultValues.append(result)
     }
 

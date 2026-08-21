@@ -67,7 +67,6 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
     }
 
     func postCleanupResult(_ result: CleanupResult) async {
-        guard result.freedSpaceDescription != nil else { return }
         let request = UNNotificationRequest(
             identifier: "net.siann.freshbrew.cleanup-result-\(UUID().uuidString)",
             content: Self.cleanupResultContent(result),
@@ -163,7 +162,11 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
         let operation = deep ? "Deep Cleanup" : "Cleanup"
         let content = UNMutableNotificationContent()
         content.title = AppIdentity.displayName
-        content.body = "\(operation) failed · \(message)"
+        if message.range(of: operation, options: [.anchored, .caseInsensitive]) != nil {
+            content.body = message
+        } else {
+            content.body = "\(operation) failed · \(message)"
+        }
         content.sound = .default
         return content
     }
