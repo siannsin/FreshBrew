@@ -17,7 +17,8 @@ protocol NotificationServing: Sendable {
         remainingUpdateCount: Int,
         hadFailures: Bool,
         newlyAvailableCount: Int,
-        cleanupOutcome: UpdateCleanupOutcome?
+        cleanupOutcome: UpdateCleanupOutcome?,
+        verificationUnavailable: Bool
     ) async
 }
 
@@ -89,7 +90,8 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
         remainingUpdateCount: Int,
         hadFailures: Bool,
         newlyAvailableCount: Int,
-        cleanupOutcome: UpdateCleanupOutcome?
+        cleanupOutcome: UpdateCleanupOutcome?,
+        verificationUnavailable: Bool
     ) async {
         guard updatedCount > 0 || hadFailures else { return }
         let request = UNNotificationRequest(
@@ -99,7 +101,8 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
                 remainingUpdateCount: remainingUpdateCount,
                 hadFailures: hadFailures,
                 newlyAvailableCount: newlyAvailableCount,
-                cleanupOutcome: cleanupOutcome
+                cleanupOutcome: cleanupOutcome,
+                verificationUnavailable: verificationUnavailable
             ),
             trigger: nil
         )
@@ -176,7 +179,8 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
         remainingUpdateCount: Int,
         hadFailures: Bool,
         newlyAvailableCount: Int,
-        cleanupOutcome: UpdateCleanupOutcome?
+        cleanupOutcome: UpdateCleanupOutcome?,
+        verificationUnavailable: Bool = false
     ) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
         var details: [String] = []
@@ -187,7 +191,9 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
             details.append("Update failed")
         }
 
-        if hadFailures {
+        if verificationUnavailable {
+            details.append("Remaining updates couldn’t be verified")
+        } else if hadFailures {
             if remainingUpdateCount == 1 {
                 let subject = updatedCount > 0 ? "1" : "1 package"
                 details.append("\(subject) still needs an update")
@@ -265,7 +271,8 @@ actor NoopNotificationService: NotificationServing {
         remainingUpdateCount: Int,
         hadFailures: Bool,
         newlyAvailableCount: Int,
-        cleanupOutcome: UpdateCleanupOutcome?
+        cleanupOutcome: UpdateCleanupOutcome?,
+        verificationUnavailable: Bool
     ) async {}
 }
 

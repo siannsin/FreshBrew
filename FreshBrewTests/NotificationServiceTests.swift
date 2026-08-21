@@ -171,6 +171,34 @@ final class NotificationServiceTests: XCTestCase {
         )
     }
 
+    func testUpdateResultContentDescribesUnavailableVerification() {
+        let partialResult = NotificationService.updateResultContent(
+            updatedCount: 1,
+            remainingUpdateCount: 2,
+            hadFailures: true,
+            newlyAvailableCount: 0,
+            cleanupOutcome: nil,
+            verificationUnavailable: true
+        )
+        let failedResult = NotificationService.updateResultContent(
+            updatedCount: 0,
+            remainingUpdateCount: 2,
+            hadFailures: true,
+            newlyAvailableCount: 0,
+            cleanupOutcome: nil,
+            verificationUnavailable: true
+        )
+
+        XCTAssertEqual(
+            partialResult.body,
+            "1 package updated · Remaining updates couldn’t be verified"
+        )
+        XCTAssertEqual(
+            failedResult.body,
+            "Update failed · Remaining updates couldn’t be verified"
+        )
+    }
+
     func testCleanupResultExtractsHomebrewFreedSpace() {
         let result = CleanupResult(
             isDeepCleanup: false,

@@ -86,7 +86,6 @@ final class MenuBarModel: ObservableObject {
     private let errorLogStore: HomebrewErrorLogStore
     private let notificationService: any NotificationServing
     private let launchAtLoginService: any LaunchAtLoginServicing
-    private let applicationLifecycleService: any ApplicationLifecycleServicing
     private let now: @Sendable () -> Date
     private let sleep: @Sendable (TimeInterval) async throws -> Void
 
@@ -96,7 +95,7 @@ final class MenuBarModel: ObservableObject {
     private var lastAttemptedPackages: [HomebrewPackage] = []
     private var pendingUpdateKnownPackageIDs: Set<String>?
     private var pendingCompletedPackages: [UpdatedPackage] = []
-    private var pendingClosedApplicationBundleIdentifiers = Set<String>()
+    private var pendingVerificationUnavailable = false
 
     init(
         homebrewService: any HomebrewServicing = HomebrewService(),
@@ -106,7 +105,6 @@ final class MenuBarModel: ObservableObject {
         errorLogStore: HomebrewErrorLogStore = HomebrewErrorLogStore(),
         notificationService: any NotificationServing = NoopNotificationService(),
         launchAtLoginService: (any LaunchAtLoginServicing)? = nil,
-        applicationLifecycleService: (any ApplicationLifecycleServicing)? = nil,
         now: @escaping @Sendable () -> Date = { Date() },
         sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { seconds in
             let nanoseconds = UInt64(max(0, seconds) * 1_000_000_000)
@@ -121,8 +119,6 @@ final class MenuBarModel: ObservableObject {
         self.notificationService = notificationService
         let resolvedLaunchAtLoginService = launchAtLoginService ?? LaunchAtLoginService()
         self.launchAtLoginService = resolvedLaunchAtLoginService
-        self.applicationLifecycleService = applicationLifecycleService
-            ?? ApplicationLifecycleService()
         self.now = now
         self.sleep = sleep
         greedyModeEnabled = preferences.greedyModeEnabled
@@ -210,7 +206,10 @@ final class MenuBarModel: ObservableObject {
     func retryLastUpdate(administratorPassword: String) async -> UpdateResult? {
         guard administratorAccessRequired else { return nil }
         let remainingIDs = Set(availablePackages.map(\.id))
-        let retryPackages = lastAttemptedPackages.filter { remainingIDs.contains($0.id) }
+        let completedIDs = Set(pendingCompletedPackages.map(\.id))
+        let retryPackages = lastAttemptedPackages.filter {
+            remainingIDs.contains($0.id) && !completedIDs.contains($0.id)
+        }
         guard !retryPackages.isEmpty else {
             statusMessage = "Update failed"
             await finalizePendingUpdateWorkflow(hadFailures: true)
@@ -407,11 +406,15 @@ final class MenuBarModel: ObservableObject {
                     }
                 }
             )
-            availablePackages = attachHomepageURLs(to: result.remainingPackages)
+            if result.verification.failure == nil {
+                availablePackages = attachHomepageURLs(to: result.remainingPackages)
+                pendingVerificationUnavailable = false
+            } else {
+                pendingVerificationUnavailable = true
+            }
             mergePendingCompletedPackages(
                 attachHomepageURLs(to: result.completedPackages)
             )
-            captureSuccessfullyQuitApplications(from: result.failures.map(\.output))
             administratorAccessRequired = result.failures.contains { failure in
                 if case .permissionRequired = HomebrewError.classified(
                     operation: failure.operation,
@@ -423,15 +426,27 @@ final class MenuBarModel: ObservableObject {
                 return false
             }
 
-            if result.failures.isEmpty {
+            if let verificationFailure = result.verification.failure {
+                statusMessage = "Verification failed"
+                lastErrorMessage = "FreshBrew could not verify the remaining updates."
+                try? await errorLogStore.record(
+                    operation: verificationFailure.operation,
+                    output: verificationFailure.output,
+                    timestamp: result.timestamp
+                )
+            }
+
+            if !result.hasFailures {
                 await finalizePendingUpdateWorkflow(hadFailures: false)
             } else {
-                let failureCount = result.failures.count
-                let didTimeOut = result.failures.contains { $0.kind == .timeout }
-                statusMessage = didTimeOut ? "Update timed out" : "Update failed"
-                lastErrorMessage = didTimeOut
-                    ? "A package update exceeded its time limit."
-                    : "\(failureCount) update operation\(failureCount == 1 ? "" : "s") failed"
+                if result.verification.failure == nil {
+                    let failureCount = result.failures.count
+                    let didTimeOut = result.failures.contains { $0.kind == .timeout }
+                    statusMessage = didTimeOut ? "Update timed out" : "Update failed"
+                    lastErrorMessage = didTimeOut
+                        ? "A package update exceeded its time limit."
+                        : "\(failureCount) update operation\(failureCount == 1 ? "" : "s") failed"
+                }
                 for failure in result.failures {
                     try? await errorLogStore.record(
                         operation: failure.operation,
@@ -454,9 +469,6 @@ final class MenuBarModel: ObservableObject {
             } else {
                 requiresAdministratorAccess = false
             }
-            captureSuccessfullyQuitApplications(
-                from: [Self.diagnosticOutput(for: error)]
-            )
             await handleFailure(
                 error,
                 operation: "update packages",
@@ -476,7 +488,7 @@ final class MenuBarModel: ObservableObject {
     private func resetPendingUpdateWorkflow() {
         pendingUpdateKnownPackageIDs = nil
         pendingCompletedPackages = []
-        pendingClosedApplicationBundleIdentifiers = []
+        pendingVerificationUnavailable = false
     }
 
     private func finalizePendingAdministratorWorkflow() async {
@@ -545,18 +557,11 @@ final class MenuBarModel: ObservableObject {
         }
     }
 
-    private func captureSuccessfullyQuitApplications(from outputs: [String]) {
-        for output in outputs {
-            pendingClosedApplicationBundleIdentifiers.formUnion(
-                HomebrewService.successfullyQuitApplicationBundleIdentifiers(from: output)
-            )
-        }
-    }
-
     private func finalizePendingUpdateWorkflow(hadFailures: Bool) async {
         let completedPackages = pendingCompletedPackages
         let knownPackageIDs = pendingUpdateKnownPackageIDs ?? []
-        let newlyAvailableCount = visiblePackages.filter {
+        let verificationUnavailable = pendingVerificationUnavailable
+        let newlyAvailableCount = verificationUnavailable ? 0 : visiblePackages.filter {
             !knownPackageIDs.contains($0.id)
         }.count
         var cleanupOutcome: UpdateCleanupOutcome?
@@ -594,15 +599,13 @@ final class MenuBarModel: ObservableObject {
             statusMessage = "FreshBrew is ready"
         }
 
-        applicationLifecycleService.reopenApplicationsIfNeeded(
-            bundleIdentifiers: pendingClosedApplicationBundleIdentifiers
-        )
         await notificationService.postUpdateResult(
             updatedCount: completedPackages.count,
             remainingUpdateCount: visiblePackages.count,
             hadFailures: hadFailures,
             newlyAvailableCount: newlyAvailableCount,
-            cleanupOutcome: cleanupOutcome
+            cleanupOutcome: cleanupOutcome,
+            verificationUnavailable: verificationUnavailable
         )
         resetPendingUpdateWorkflow()
     }

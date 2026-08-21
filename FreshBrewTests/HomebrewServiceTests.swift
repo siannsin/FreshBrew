@@ -171,6 +171,10 @@ final class HomebrewServiceTests: XCTestCase {
             HomebrewService.metadataTimeoutPolicy,
             HomebrewService.outdatedTimeoutPolicy
         ])
+        XCTAssertEqual(
+            requests.last?.environment["HOMEBREW_NO_AUTO_UPDATE"],
+            "1"
+        )
     }
 
     func testCheckOutdatedFailsBeforeRunningHomebrewWhenNetworkIsUnavailable() async throws {
@@ -300,6 +304,82 @@ final class HomebrewServiceTests: XCTestCase {
             ["reinstall", "--cask", "--force", "duckduckgo"],
             ["outdated", "--verbose", "--greedy"]
         ])
+    }
+
+    func testUpdatePreservesSuccessfulBatchWhenVerificationTimesOut() async throws {
+        let package = package(named: "spotify", kind: .cask)
+        let runner = StubCommandRunner(responses: [
+            .result(CommandResult(
+                exitCode: 0,
+                standardOutput: "spotify updated",
+                standardError: ""
+            )),
+            .timeout(CommandTimeoutError(
+                reason: .absolute,
+                limit: 60,
+                output: "verification stalled"
+            ))
+        ])
+        let service = makeService(runner: runner)
+
+        let result = try await service.update(packages: [package], greedy: true)
+
+        XCTAssertEqual(result.completedPackages.map(\.name), ["spotify"])
+        XCTAssertTrue(result.remainingPackages.isEmpty)
+        XCTAssertTrue(result.failures.isEmpty)
+        guard case let .unavailable(failure) = result.verification else {
+            return XCTFail("Expected verification to be unavailable")
+        }
+        XCTAssertEqual(failure.operation, "verify updates")
+        XCTAssertEqual(failure.kind, .timeout)
+        XCTAssertTrue(failure.output.contains("verification stalled"))
+    }
+
+    func testUpdatePreservesOnlySuccessfulBatchWhenVerificationIsUnavailable() async throws {
+        let formula = package(named: "ripgrep", kind: .formula)
+        let cask = package(named: "stats", kind: .cask)
+        let runner = StubCommandRunner(results: [
+            CommandResult(exitCode: 0, standardOutput: "formula updated", standardError: ""),
+            CommandResult(exitCode: 1, standardOutput: "", standardError: "permission denied"),
+            CommandResult(exitCode: 1, standardOutput: "", standardError: "outdated failed")
+        ])
+        let service = makeService(runner: runner)
+
+        let result = try await service.update(
+            packages: [formula, cask],
+            greedy: false
+        )
+
+        XCTAssertEqual(result.completedPackages.map(\.name), ["ripgrep"])
+        XCTAssertEqual(result.remainingPackages.map(\.name), ["stats"])
+        XCTAssertEqual(result.failures.map(\.operation), ["upgrade casks"])
+        guard case let .unavailable(failure) = result.verification else {
+            return XCTFail("Expected verification to be unavailable")
+        }
+        XCTAssertEqual(failure.operation, "verify updates")
+        XCTAssertTrue(failure.output.contains("outdated failed"))
+    }
+
+    func testUpdateTreatsMalformedVerificationOutputAsUnavailable() async throws {
+        let package = package(named: "ripgrep", kind: .formula)
+        let runner = StubCommandRunner(results: [
+            CommandResult(exitCode: 0, standardOutput: "updated", standardError: ""),
+            CommandResult(
+                exitCode: 0,
+                standardOutput: "unexpected verification output",
+                standardError: ""
+            )
+        ])
+        let service = makeService(runner: runner)
+
+        let result = try await service.update(packages: [package], greedy: false)
+
+        XCTAssertEqual(result.completedPackages.map(\.name), ["ripgrep"])
+        guard case let .unavailable(failure) = result.verification else {
+            return XCTFail("Expected malformed verification to be unavailable")
+        }
+        XCTAssertEqual(failure.operation, "verify updates")
+        XCTAssertTrue(failure.output.contains("unexpected verification output"))
     }
 
     func testUpdateUsesFreshBrewAskpassEnvironmentAndRemovesTemporaryFiles() async throws {

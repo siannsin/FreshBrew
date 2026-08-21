@@ -141,11 +141,23 @@ actor HomebrewService {
 
         let outdatedResult = try await run(
             arguments: Self.outdatedArguments(greedy: greedy),
+            environment: ["HOMEBREW_NO_AUTO_UPDATE": "1"],
             operation: "check outdated packages",
             timeoutPolicy: Self.outdatedTimeoutPolicy
         )
         try requireSuccess(outdatedResult, operation: "check outdated packages")
-        return Self.parseOutdatedOutput(outdatedResult.standardOutput)
+        let packages = Self.parseOutdatedOutput(outdatedResult.standardOutput)
+        if packages.isEmpty,
+           !outdatedResult.standardOutput.trimmingCharacters(
+               in: .whitespacesAndNewlines
+           ).isEmpty {
+            throw HomebrewError.commandFailed(HomebrewCommandFailure(
+                operation: "check outdated packages",
+                exitCode: outdatedResult.exitCode,
+                output: outdatedResult.combinedOutput
+            ))
+        }
+        return packages
     }
 
     func packageHomepageURL(
@@ -220,6 +232,7 @@ actor HomebrewService {
         let environment = authorizationContext?.environment ?? [:]
         var commandFailures: [HomebrewCommandFailure] = []
         var combinedUpgradeOutput = ""
+        var evidencedCompletedPackageIDs = Set<String>()
         var updateTimedOut = false
 
         onProgress?(UpdateProgress(
@@ -243,7 +256,9 @@ actor HomebrewService {
                 )
                 combinedUpgradeOutput += "\n" + result.combinedOutput
 
-                if result.exitCode != 0 {
+                if result.exitCode == 0 {
+                    evidencedCompletedPackageIDs.formUnion(group.map(\.id))
+                } else {
                     commandFailures.append(HomebrewCommandFailure(
                         operation: operation,
                         exitCode: result.exitCode,
@@ -253,6 +268,7 @@ actor HomebrewService {
             } catch let error as HomebrewError {
                 guard let failure = Self.timeoutFailure(from: error) else { throw error }
                 commandFailures.append(failure)
+                combinedUpgradeOutput += "\n" + failure.output
                 updateTimedOut = true
                 break
             }
@@ -262,6 +278,7 @@ actor HomebrewService {
         let refusedCasks = updateTimedOut ? [] : candidates.filter {
             $0.kind == .cask && refusedNames.contains($0.name)
         }
+        evidencedCompletedPackageIDs.subtract(refusedCasks.map(\.id))
 
         for package in refusedCasks {
             onProgress?(UpdateProgress(
@@ -279,7 +296,10 @@ actor HomebrewService {
                     timeoutPolicy: Self.packageTimeoutPolicy,
                     onOutput: progressRelay(stage: .reinstalling, onProgress: onProgress)
                 )
-                if reinstallResult.exitCode != 0 {
+                combinedUpgradeOutput += "\n" + reinstallResult.combinedOutput
+                if reinstallResult.exitCode == 0 {
+                    evidencedCompletedPackageIDs.insert(package.id)
+                } else {
                     commandFailures.append(HomebrewCommandFailure(
                         operation: operation,
                         exitCode: reinstallResult.exitCode,
@@ -289,6 +309,7 @@ actor HomebrewService {
             } catch let error as HomebrewError {
                 guard let failure = Self.timeoutFailure(from: error) else { throw error }
                 commandFailures.append(failure)
+                combinedUpgradeOutput += "\n" + failure.output
                 break
             }
         }
@@ -299,20 +320,31 @@ actor HomebrewService {
             message: "Verifying Homebrew updates"
         ))
 
-        let remainingPackages = try await checkOutdated(
-            greedy: greedy,
-            refreshMetadata: false
-        )
+        let remainingPackages: [HomebrewPackage]
+        do {
+            remainingPackages = try await checkOutdated(
+                greedy: greedy,
+                refreshMetadata: false
+            )
+        } catch {
+            let completedPackages = candidates.compactMap { package -> UpdatedPackage? in
+                guard evidencedCompletedPackageIDs.contains(package.id) else { return nil }
+                return Self.updatedPackage(from: package)
+            }
+            return UpdateResult(
+                completedPackages: completedPackages,
+                remainingPackages: candidates.filter {
+                    !evidencedCompletedPackageIDs.contains($0.id)
+                },
+                failures: commandFailures,
+                timestamp: Date(),
+                verification: .unavailable(Self.verificationFailure(from: error))
+            )
+        }
         let remainingIDs = Set(remainingPackages.map(\.id))
         let completedPackages = candidates.compactMap { package -> UpdatedPackage? in
             guard !remainingIDs.contains(package.id) else { return nil }
-            return UpdatedPackage(
-                name: package.name,
-                previousVersion: package.installedVersion,
-                installedVersion: package.availableVersion,
-                kind: package.kind,
-                homepageURL: package.homepageURL
-            )
+            return Self.updatedPackage(from: package)
         }
 
         let unfinishedCandidateIDs = Set(candidates.map(\.id)).intersection(remainingIDs)
@@ -392,18 +424,23 @@ actor HomebrewService {
             try recoveryStore.discard(backup)
             shouldRestoreBackup = false
 
-            let remainingPackages = try await checkOutdated(
-                greedy: greedy,
-                refreshMetadata: false
-            )
+            let remainingPackages: [HomebrewPackage]
+            do {
+                remainingPackages = try await checkOutdated(
+                    greedy: greedy,
+                    refreshMetadata: false
+                )
+            } catch {
+                return UpdateResult(
+                    completedPackages: [Self.updatedPackage(from: package)],
+                    remainingPackages: [],
+                    failures: [],
+                    timestamp: Date(),
+                    verification: .unavailable(Self.verificationFailure(from: error))
+                )
+            }
             let isStillOutdated = remainingPackages.contains { $0.id == package.id }
-            let completedPackages = isStillOutdated ? [] : [UpdatedPackage(
-                name: package.name,
-                previousVersion: package.installedVersion,
-                installedVersion: package.availableVersion,
-                kind: package.kind,
-                homepageURL: package.homepageURL
-            )]
+            let completedPackages = isStillOutdated ? [] : [Self.updatedPackage(from: package)]
             let failures = isStillOutdated ? [HomebrewCommandFailure(
                 operation: "verify recovered cask",
                 exitCode: 0,
@@ -504,26 +541,6 @@ actor HomebrewService {
         }
 
         return names
-    }
-
-    nonisolated static func successfullyQuitApplicationBundleIdentifiers(
-        from output: String
-    ) -> Set<String> {
-        let prefix = "Application '"
-        let suffix = "' quit successfully."
-        var bundleIdentifiers = Set<String>()
-
-        for rawLine in output.components(separatedBy: .newlines) {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard line.hasPrefix(prefix), line.hasSuffix(suffix) else { continue }
-
-            let start = line.index(line.startIndex, offsetBy: prefix.count)
-            let end = line.index(line.endIndex, offsetBy: -suffix.count)
-            guard start < end else { continue }
-            bundleIdentifiers.insert(String(line[start..<end]))
-        }
-
-        return bundleIdentifiers
     }
 
     private func ensureExecutableIsAvailable() throws {
@@ -697,6 +714,72 @@ actor HomebrewService {
             exitCode: -1,
             output: diagnosticOutput,
             kind: .timeout
+        )
+    }
+
+    private nonisolated static func verificationFailure(
+        from error: Error
+    ) -> HomebrewCommandFailure {
+        if let homebrewError = error as? HomebrewError {
+            switch homebrewError {
+            case let .commandFailed(failure):
+                return HomebrewCommandFailure(
+                    operation: "verify updates",
+                    exitCode: failure.exitCode,
+                    output: failure.output,
+                    kind: failure.kind
+                )
+            case let .timedOut(_, seconds, output):
+                let detail = "FreshBrew stopped update verification after \(Int(seconds)) seconds."
+                return HomebrewCommandFailure(
+                    operation: "verify updates",
+                    exitCode: -1,
+                    output: [output, detail].filter { !$0.isEmpty }.joined(separator: "\n"),
+                    kind: .timeout
+                )
+            case let .permissionRequired(output):
+                return HomebrewCommandFailure(
+                    operation: "verify updates",
+                    exitCode: -1,
+                    output: output
+                )
+            case let .existingApplicationConflict(_, output):
+                return HomebrewCommandFailure(
+                    operation: "verify updates",
+                    exitCode: -1,
+                    output: output
+                )
+            case let .executableNotFound(url), let .invalidRecoveryTarget(url):
+                return HomebrewCommandFailure(
+                    operation: "verify updates",
+                    exitCode: -1,
+                    output: url.path
+                )
+            case .networkUnavailable:
+                return HomebrewCommandFailure(
+                    operation: "verify updates",
+                    exitCode: -1,
+                    output: homebrewError.localizedDescription
+                )
+            }
+        }
+
+        return HomebrewCommandFailure(
+            operation: "verify updates",
+            exitCode: -1,
+            output: String(describing: error)
+        )
+    }
+
+    private nonisolated static func updatedPackage(
+        from package: HomebrewPackage
+    ) -> UpdatedPackage {
+        UpdatedPackage(
+            name: package.name,
+            previousVersion: package.installedVersion,
+            installedVersion: package.availableVersion,
+            kind: package.kind,
+            homepageURL: package.homepageURL
         )
     }
 

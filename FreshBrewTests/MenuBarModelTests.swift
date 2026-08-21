@@ -53,26 +53,6 @@ final class MenuBarModelTests: XCTestCase {
         )
     }
 
-    func testApplicationLifecycleServiceSkipsRunningApplications() {
-        let runningIdentifier = "com.example.running"
-        let closedIdentifier = "com.example.closed"
-        var openedURLs: [URL] = []
-        let service = ApplicationLifecycleService(
-            isApplicationRunning: { $0 == runningIdentifier },
-            applicationURL: { URL(fileURLWithPath: "/Applications/\($0).app") },
-            openApplication: { openedURLs.append($0) }
-        )
-
-        service.reopenApplicationsIfNeeded(
-            bundleIdentifiers: [runningIdentifier, closedIdentifier]
-        )
-
-        XCTAssertEqual(
-            openedURLs.map(\.lastPathComponent),
-            ["com.example.closed.app"]
-        )
-    }
-
     func testCheckAndUpdateStrictlyFollowGreedyMode() async throws {
         let package = makePackage(named: "firefox", kind: .cask)
         let service = FakeHomebrewService(
@@ -470,6 +450,119 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertEqual(model.statusMessage, "Update failed")
     }
 
+    func testUnavailableVerificationPreservesStateAndHistory() async {
+        let completed = makePackage(named: "ripgrep", kind: .formula)
+        let uncertain = makePackage(named: "spotify", kind: .cask)
+        let verificationFailure = HomebrewCommandFailure(
+            operation: "verify updates",
+            exitCode: -1,
+            output: "verification timed out",
+            kind: .timeout
+        )
+        let service = FakeHomebrewService(
+            checkResponses: [.packages([completed, uncertain])],
+            updateResult: UpdateResult(
+                completedPackages: [makeUpdatedPackage(from: completed)],
+                remainingPackages: [uncertain],
+                failures: [],
+                timestamp: Date(timeIntervalSince1970: 500),
+                verification: .unavailable(verificationFailure)
+            )
+        )
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies(now: Date(timeIntervalSince1970: 500))
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+        model.autoCleanupEnabled = true
+
+        _ = await model.checkUpdates()
+        _ = await model.updateAll()
+
+        XCTAssertEqual(model.availablePackages, [completed, uncertain])
+        XCTAssertEqual(model.latestUpdate?.packages.map(\.name), ["ripgrep"])
+        XCTAssertEqual(model.statusMessage, "Verification failed")
+        XCTAssertEqual(
+            model.lastErrorMessage,
+            "FreshBrew could not verify the remaining updates."
+        )
+        let cleanupDeepValues = await service.recordedCleanupDeepValues()
+        let completionValues = await notifications.completions()
+        XCTAssertTrue(cleanupDeepValues.isEmpty)
+        XCTAssertEqual(
+            completionValues,
+            [UpdateCompletion(
+                updatedCount: 1,
+                remainingUpdateCount: 2,
+                hadFailures: true,
+                newlyAvailableCount: 0,
+                cleanupOutcome: nil,
+                verificationUnavailable: true
+            )]
+        )
+        let logEntries = try? await dependencies.errorLogStore.entries(
+            referenceDate: Date(timeIntervalSince1970: 500)
+        )
+        XCTAssertEqual(logEntries?.first?.operation, "verify updates")
+        XCTAssertEqual(logEntries?.first?.output, "verification timed out")
+    }
+
+    func testAdministratorRetryExcludesEvidenceCompletedBeforeUnavailableVerification() async {
+        let formula = makePackage(named: "ripgrep", kind: .formula)
+        let cask = makePackage(named: "stats", kind: .cask)
+        let permissionFailure = HomebrewCommandFailure(
+            operation: "upgrade casks",
+            exitCode: 1,
+            output: "permission denied"
+        )
+        let verificationFailure = HomebrewCommandFailure(
+            operation: "verify updates",
+            exitCode: -1,
+            output: "verification timed out",
+            kind: .timeout
+        )
+        let service = FakeHomebrewService(
+            checkResponses: [.packages([formula, cask])],
+            updateResponses: [
+                .success(UpdateResult(
+                    completedPackages: [makeUpdatedPackage(from: formula)],
+                    remainingPackages: [cask],
+                    failures: [permissionFailure],
+                    timestamp: Date(timeIntervalSince1970: 500),
+                    verification: .unavailable(verificationFailure)
+                )),
+                .success(UpdateResult(
+                    completedPackages: [makeUpdatedPackage(from: cask)],
+                    remainingPackages: [],
+                    failures: [],
+                    timestamp: Date(timeIntervalSince1970: 501)
+                ))
+            ]
+        )
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        _ = await model.checkUpdates()
+        _ = await model.updateAll()
+        XCTAssertTrue(model.administratorAccessRequired)
+        _ = await model.retryLastUpdate(administratorPassword: "password")
+
+        let updatePackageIDBatches = await service.recordedUpdatePackageIDBatches()
+        XCTAssertEqual(
+            updatePackageIDBatches,
+            [[formula.id, cask.id], [cask.id]]
+        )
+        XCTAssertEqual(
+            model.latestUpdate?.packages.map(\.name),
+            ["ripgrep", "stats"]
+        )
+        XCTAssertTrue(model.availablePackages.isEmpty)
+    }
+
     func testPermissionResultWaitsForAdministratorRetryBeforePostingNotification() async {
         let package = makePackage(named: "stats", kind: .cask)
         let permissionFailure = HomebrewCommandFailure(
@@ -681,54 +774,6 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertEqual(model.latestUpdate?.packages.count, 2)
     }
 
-    func testAdministratorRetryReopensApplicationQuitByInitialAttempt() async {
-        let package = makePackage(named: "aldente", kind: .cask)
-        let permissionFailure = HomebrewCommandFailure(
-            operation: "upgrade casks",
-            exitCode: 1,
-            output: """
-            Application 'com.apphousekitchen.aldente-pro' quit successfully.
-            sudo: a password is required
-            """
-        )
-        let service = FakeHomebrewService(
-            checkResponses: [.packages([package])],
-            updateResponses: [
-                .success(UpdateResult(
-                    completedPackages: [],
-                    remainingPackages: [package],
-                    failures: [permissionFailure],
-                    timestamp: Date(timeIntervalSince1970: 500)
-                )),
-                .success(UpdateResult(
-                    completedPackages: [makeUpdatedPackage(from: package)],
-                    remainingPackages: [],
-                    failures: [],
-                    timestamp: Date(timeIntervalSince1970: 501)
-                ))
-            ]
-        )
-        let lifecycleService = FakeApplicationLifecycleService()
-        let dependencies = makeDependencies()
-        defer { dependencies.cleanUp() }
-        let model = makeModel(
-            service: service,
-            dependencies: dependencies,
-            applicationLifecycleService: lifecycleService
-        )
-
-        _ = await model.checkUpdates()
-        _ = await model.updateAll()
-        XCTAssertTrue(lifecycleService.requests.isEmpty)
-
-        _ = await model.retryLastUpdate(administratorPassword: "secret")
-
-        XCTAssertEqual(
-            lifecycleService.requests,
-            [["com.apphousekitchen.aldente-pro"]]
-        )
-    }
-
     func testThreeFailedPasswordAttemptsPreserveEarlierCompletedPackages() async {
         let formula = makePackage(named: "ripgrep", kind: .formula)
         let cask = makePackage(named: "stats", kind: .cask)
@@ -757,14 +802,12 @@ final class MenuBarModelTests: XCTestCase {
             updateResponses: [initialResponse] + Array(repeating: retryResponse, count: 3)
         )
         let notifications = FakeNotificationService()
-        let lifecycleService = FakeApplicationLifecycleService()
         let dependencies = makeDependencies()
         defer { dependencies.cleanUp() }
         let model = makeModel(
             service: service,
             dependencies: dependencies,
-            notificationService: notifications,
-            applicationLifecycleService: lifecycleService
+            notificationService: notifications
         )
         let coordinator = UpdateActionCoordinator(
             model: model,
@@ -780,7 +823,6 @@ final class MenuBarModelTests: XCTestCase {
         let passwords = await service.recordedAdministratorPasswords()
         XCTAssertFalse(model.administratorAccessRequired)
         XCTAssertEqual(passwords, [nil, "wrong-1", "wrong-2", "wrong-3"])
-        XCTAssertEqual(lifecycleService.requests, [["com.example.stats"]])
         XCTAssertEqual(
             completionValues,
             [UpdateCompletion(
@@ -842,44 +884,6 @@ final class MenuBarModelTests: XCTestCase {
         )
         XCTAssertEqual(model.updateHistory.count, 1)
         XCTAssertEqual(model.latestUpdate?.packages.map(\.name), ["ripgrep"])
-    }
-
-    func testCancellingPasswordPromptReopensApplicationQuitBeforeRetry() async {
-        let package = makePackage(named: "spotify", kind: .cask)
-        let permissionFailure = HomebrewCommandFailure(
-            operation: "upgrade casks",
-            exitCode: 1,
-            output: """
-            Application 'com.spotify.client' quit successfully.
-            sudo: a password is required
-            """
-        )
-        let service = FakeHomebrewService(
-            checkResponses: [.packages([package])],
-            updateResult: UpdateResult(
-                completedPackages: [],
-                remainingPackages: [package],
-                failures: [permissionFailure],
-                timestamp: Date(timeIntervalSince1970: 500)
-            )
-        )
-        let lifecycleService = FakeApplicationLifecycleService()
-        let dependencies = makeDependencies()
-        defer { dependencies.cleanUp() }
-        let model = makeModel(
-            service: service,
-            dependencies: dependencies,
-            applicationLifecycleService: lifecycleService
-        )
-        let coordinator = UpdateActionCoordinator(
-            model: model,
-            passwordPrompt: FakeAdminPasswordPrompt(passwords: [])
-        )
-
-        _ = await model.checkUpdates()
-        await coordinator.updateAll()
-
-        XCTAssertEqual(lifecycleService.requests, [["com.spotify.client"]])
     }
 
     func testCancellingPasswordPromptWithoutSuccessPostsFailureNotification() async {
@@ -1352,7 +1356,6 @@ final class MenuBarModelTests: XCTestCase {
         service: FakeHomebrewService,
         dependencies: ModelDependencies,
         notificationService: any NotificationServing = NoopNotificationService(),
-        applicationLifecycleService: (any ApplicationLifecycleServicing)? = nil,
         sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { _ in }
     ) -> MenuBarModel {
         let referenceDate = dependencies.referenceDate
@@ -1364,8 +1367,6 @@ final class MenuBarModelTests: XCTestCase {
             errorLogStore: dependencies.errorLogStore,
             notificationService: notificationService,
             launchAtLoginService: FakeLaunchAtLoginService(),
-            applicationLifecycleService: applicationLifecycleService
-                ?? FakeApplicationLifecycleService(),
             now: { referenceDate },
             sleep: sleep
         )
@@ -1445,6 +1446,7 @@ private actor FakeHomebrewService: HomebrewServicing {
     private var updateResponses: [Result<UpdateResult, HomebrewError>]
     private var checkGreedyValues: [Bool] = []
     private var updateGreedyValues: [Bool] = []
+    private var updatePackageIDBatches: [[String]] = []
     private var administratorPasswords: [String?] = []
     private var cleanupResponses: [Result<CleanupResult, HomebrewError>]
     private var cleanupDeepValues: [Bool] = []
@@ -1494,6 +1496,7 @@ private actor FakeHomebrewService: HomebrewServicing {
         onProgress: (@Sendable (UpdateProgress) -> Void)?
     ) async throws -> UpdateResult {
         updateGreedyValues.append(greedy)
+        updatePackageIDBatches.append(packages.map(\.id))
         administratorPasswords.append(administratorPassword)
         if !updateResponses.isEmpty {
             return try updateResponses.removeFirst().get()
@@ -1522,6 +1525,10 @@ private actor FakeHomebrewService: HomebrewServicing {
         updateGreedyValues
     }
 
+    func recordedUpdatePackageIDBatches() -> [[String]] {
+        updatePackageIDBatches
+    }
+
     func recordedAdministratorPasswords() -> [String?] {
         administratorPasswords
     }
@@ -1541,6 +1548,23 @@ private struct UpdateCompletion: Equatable, Sendable {
     let hadFailures: Bool
     let newlyAvailableCount: Int
     let cleanupOutcome: UpdateCleanupOutcome?
+    let verificationUnavailable: Bool
+
+    init(
+        updatedCount: Int,
+        remainingUpdateCount: Int,
+        hadFailures: Bool,
+        newlyAvailableCount: Int,
+        cleanupOutcome: UpdateCleanupOutcome?,
+        verificationUnavailable: Bool = false
+    ) {
+        self.updatedCount = updatedCount
+        self.remainingUpdateCount = remainingUpdateCount
+        self.hadFailures = hadFailures
+        self.newlyAvailableCount = newlyAvailableCount
+        self.cleanupOutcome = cleanupOutcome
+        self.verificationUnavailable = verificationUnavailable
+    }
 }
 
 private actor FakeNotificationService: NotificationServing {
@@ -1574,7 +1598,8 @@ private actor FakeNotificationService: NotificationServing {
         remainingUpdateCount: Int,
         hadFailures: Bool,
         newlyAvailableCount: Int,
-        cleanupOutcome: UpdateCleanupOutcome?
+        cleanupOutcome: UpdateCleanupOutcome?,
+        verificationUnavailable: Bool
     ) async {
         guard updatedCount > 0 || hadFailures else { return }
         completionValues.append(UpdateCompletion(
@@ -1582,7 +1607,8 @@ private actor FakeNotificationService: NotificationServing {
             remainingUpdateCount: remainingUpdateCount,
             hadFailures: hadFailures,
             newlyAvailableCount: newlyAvailableCount,
-            cleanupOutcome: cleanupOutcome
+            cleanupOutcome: cleanupOutcome,
+            verificationUnavailable: verificationUnavailable
         ))
     }
 
@@ -1599,16 +1625,6 @@ private final class FakeLaunchAtLoginService: LaunchAtLoginServicing {
 
     func setEnabled(_ enabled: Bool) throws {
         isEnabled = enabled
-    }
-}
-
-@MainActor
-private final class FakeApplicationLifecycleService: ApplicationLifecycleServicing {
-    private(set) var requests: [Set<String>] = []
-
-    func reopenApplicationsIfNeeded(bundleIdentifiers: Set<String>) {
-        guard !bundleIdentifiers.isEmpty else { return }
-        requests.append(bundleIdentifiers)
     }
 }
 

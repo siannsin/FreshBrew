@@ -24,17 +24,42 @@ struct HomebrewCommandFailure: Codable, Hashable, Sendable {
     }
 }
 
+enum UpdateVerification: Codable, Hashable, Sendable {
+    case completed
+    case unavailable(HomebrewCommandFailure)
+
+    var failure: HomebrewCommandFailure? {
+        guard case let .unavailable(failure) = self else { return nil }
+        return failure
+    }
+}
+
 struct UpdateResult: Codable, Hashable, Sendable {
     let completedPackages: [UpdatedPackage]
     let remainingPackages: [HomebrewPackage]
     let failures: [HomebrewCommandFailure]
     let timestamp: Date
+    let verification: UpdateVerification
+
+    init(
+        completedPackages: [UpdatedPackage],
+        remainingPackages: [HomebrewPackage],
+        failures: [HomebrewCommandFailure],
+        timestamp: Date,
+        verification: UpdateVerification = .completed
+    ) {
+        self.completedPackages = completedPackages
+        self.remainingPackages = remainingPackages
+        self.failures = failures
+        self.timestamp = timestamp
+        self.verification = verification
+    }
 
     var completedCount: Int {
         completedPackages.count
     }
 
     var hasFailures: Bool {
-        !failures.isEmpty
+        !failures.isEmpty || verification.failure != nil
     }
 }
