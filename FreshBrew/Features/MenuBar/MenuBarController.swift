@@ -134,7 +134,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         if let packageHomepageErrorMessage = model.packageHomepageErrorMessage {
             return packageHomepageErrorMessage
         }
-        if let lastCheckDate = model.lastHomebrewCheckDate {
+        if let lastCheckDate = model.lastSuccessfulHomebrewCheckDate {
             return "Last checked: \(lastCheckDate.formatted(date: .omitted, time: .shortened))"
         }
         return "FreshBrew is ready"

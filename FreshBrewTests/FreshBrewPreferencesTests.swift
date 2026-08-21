@@ -23,7 +23,7 @@ final class FreshBrewPreferencesTests: XCTestCase {
         XCTAssertFalse(preferences.launchAtLoginEnabled)
         XCTAssertTrue(preferences.appUpdateChecksEnabled)
         XCTAssertTrue(preferences.rememberedSkippedPackageIDs.isEmpty)
-        XCTAssertNil(preferences.lastHomebrewCheckDate)
+        XCTAssertNil(preferences.lastSuccessfulHomebrewCheckDate)
         XCTAssertNil(preferences.lastSuccessfulAppUpdateCheckDate)
         XCTAssertNil(preferences.lastNotifiedAppVersion)
     }
@@ -36,7 +36,7 @@ final class FreshBrewPreferencesTests: XCTestCase {
         first.rememberedSkippedPackageIDs = ["cask:firefox"]
         first.appUpdateChecksEnabled = false
         let date = Date(timeIntervalSince1970: 1234)
-        first.lastHomebrewCheckDate = date
+        first.lastSuccessfulHomebrewCheckDate = date.addingTimeInterval(5)
         first.lastSuccessfulAppUpdateCheckDate = date.addingTimeInterval(10)
         first.lastNotifiedAppVersion = "0.2.0"
 
@@ -46,11 +46,24 @@ final class FreshBrewPreferencesTests: XCTestCase {
         XCTAssertEqual(second.periodicCheckInterval, 28_800)
         XCTAssertEqual(second.rememberedSkippedPackageIDs, ["cask:firefox"])
         XCTAssertFalse(second.appUpdateChecksEnabled)
-        XCTAssertEqual(second.lastHomebrewCheckDate, date)
+        XCTAssertEqual(
+            second.lastSuccessfulHomebrewCheckDate,
+            date.addingTimeInterval(5)
+        )
         XCTAssertEqual(
             second.lastSuccessfulAppUpdateCheckDate,
             date.addingTimeInterval(10)
         )
         XCTAssertEqual(second.lastNotifiedAppVersion, "0.2.0")
+    }
+
+    func testLegacyHomebrewCheckDateMigratesToSuccessfulCheckDate() {
+        let legacyDate = Date(timeIntervalSince1970: 4_321)
+        defaults.set(legacyDate, forKey: "lastHomebrewCheckDate")
+
+        let preferences = FreshBrewPreferences(defaults: defaults)
+
+        XCTAssertEqual(preferences.lastSuccessfulHomebrewCheckDate, legacyDate)
+        XCTAssertNil(defaults.object(forKey: "lastHomebrewCheckDate"))
     }
 }

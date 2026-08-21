@@ -18,7 +18,7 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var activity: Activity = .idle
     @Published private(set) var progress: UpdateProgress?
     @Published private(set) var statusMessage = "FreshBrew is ready"
-    @Published private(set) var lastHomebrewCheckDate: Date?
+    @Published private(set) var lastSuccessfulHomebrewCheckDate: Date?
     @Published private(set) var lastErrorMessage: String?
     @Published private(set) var packageHomepageErrorMessage: String?
     @Published private(set) var administratorAccessRequired = false
@@ -31,8 +31,8 @@ final class MenuBarModel: ObservableObject {
             preferences.greedyModeEnabled = greedyModeEnabled
             availablePackages = []
             sessionSkippedPackageIDs = []
-            lastHomebrewCheckDate = nil
-            preferences.lastHomebrewCheckDate = nil
+            lastSuccessfulHomebrewCheckDate = nil
+            preferences.lastSuccessfulHomebrewCheckDate = nil
             packageHomepageErrorMessage = nil
             statusMessage = "FreshBrew is ready"
         }
@@ -131,7 +131,7 @@ final class MenuBarModel: ObservableObject {
             to: historyStore.load(),
             store: packageHomepageStore
         )
-        lastHomebrewCheckDate = preferences.lastHomebrewCheckDate
+        lastSuccessfulHomebrewCheckDate = preferences.lastSuccessfulHomebrewCheckDate
         preferences.launchAtLoginEnabled = launchAtLoginEnabled
     }
 
@@ -148,9 +148,6 @@ final class MenuBarModel: ObservableObject {
         statusMessage = "Checking updates…"
         lastErrorMessage = nil
         packageHomepageErrorMessage = nil
-        let checkDate = now()
-        lastHomebrewCheckDate = checkDate
-        preferences.lastHomebrewCheckDate = checkDate
 
         defer {
             activity = .idle
@@ -162,6 +159,9 @@ final class MenuBarModel: ObservableObject {
                 greedy: greedyModeEnabled,
                 refreshMetadata: true
             )
+            let successfulCheckDate = now()
+            lastSuccessfulHomebrewCheckDate = successfulCheckDate
+            preferences.lastSuccessfulHomebrewCheckDate = successfulCheckDate
             let homepageURLs = await homebrewService.packageHomepageURLs(for: packages)
             packageHomepageStore.save(homepageURLs)
             availablePackages = attachHomepageURLs(to: packages)
@@ -364,11 +364,13 @@ final class MenuBarModel: ObservableObject {
     }
 
     func shouldRunHomebrewCheck(now date: Date? = nil) -> Bool {
-        guard let lastCheckDate = preferences.lastHomebrewCheckDate else {
-            return true
+        let checkDate = date ?? now()
+        if let lastSuccessDate = preferences.lastSuccessfulHomebrewCheckDate,
+           checkDate.timeIntervalSince(lastSuccessDate)
+            < Self.minimumHomebrewCheckInterval {
+            return false
         }
-        return (date ?? now()).timeIntervalSince(lastCheckDate)
-            >= Self.minimumHomebrewCheckInterval
+        return true
     }
 
     private func update(

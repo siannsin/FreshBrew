@@ -21,7 +21,8 @@ final class FreshBrewPreferences: @unchecked Sendable {
         static let autoCleanupEnabled = "autoCleanupEnabled"
         static let launchAtLoginEnabled = "launchAtLoginEnabled"
         static let rememberedSkippedPackageIDs = "rememberedSkippedPackageIDs"
-        static let lastHomebrewCheckDate = "lastHomebrewCheckDate"
+        static let legacyLastHomebrewCheckDate = "lastHomebrewCheckDate"
+        static let lastSuccessfulHomebrewCheckDate = "lastSuccessfulHomebrewCheckDate"
         static let appUpdateChecksEnabled = "appUpdateChecksEnabled"
         static let lastSuccessfulAppUpdateCheckDate = "lastSuccessfulAppUpdateCheckDate"
         static let lastNotifiedAppVersion = "lastNotifiedAppVersion"
@@ -41,6 +42,7 @@ final class FreshBrewPreferences: @unchecked Sendable {
             Key.rememberedSkippedPackageIDs: [String](),
             Key.appUpdateChecksEnabled: true
         ])
+        migrateLegacyHomebrewCheckDate(in: defaults)
     }
 
     var greedyModeEnabled: Bool {
@@ -78,9 +80,9 @@ final class FreshBrewPreferences: @unchecked Sendable {
         set { write { $0.set(newValue.sorted(), forKey: Key.rememberedSkippedPackageIDs) } }
     }
 
-    var lastHomebrewCheckDate: Date? {
-        get { read { $0.object(forKey: Key.lastHomebrewCheckDate) as? Date } }
-        set { write { $0.set(newValue, forKey: Key.lastHomebrewCheckDate) } }
+    var lastSuccessfulHomebrewCheckDate: Date? {
+        get { read { $0.object(forKey: Key.lastSuccessfulHomebrewCheckDate) as? Date } }
+        set { write { $0.set(newValue, forKey: Key.lastSuccessfulHomebrewCheckDate) } }
     }
 
     var appUpdateChecksEnabled: Bool {
@@ -108,5 +110,18 @@ final class FreshBrewPreferences: @unchecked Sendable {
         lock.lock()
         operation(defaults)
         lock.unlock()
+    }
+
+    private func migrateLegacyHomebrewCheckDate(in defaults: any PreferencesStoring) {
+        guard let legacyDate = defaults.object(
+            forKey: Key.legacyLastHomebrewCheckDate
+        ) as? Date else {
+            return
+        }
+
+        if defaults.object(forKey: Key.lastSuccessfulHomebrewCheckDate) == nil {
+            defaults.set(legacyDate, forKey: Key.lastSuccessfulHomebrewCheckDate)
+        }
+        defaults.set(nil, forKey: Key.legacyLastHomebrewCheckDate)
     }
 }

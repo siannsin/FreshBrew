@@ -217,14 +217,14 @@ final class MenuBarModelTests: XCTestCase {
         _ = await model.checkUpdates()
         model.skip(package, remember: false)
         XCTAssertFalse(model.sessionSkippedPackageIDs.isEmpty)
-        XCTAssertNotNil(model.lastHomebrewCheckDate)
+        XCTAssertNotNil(model.lastSuccessfulHomebrewCheckDate)
 
         model.greedyModeEnabled = true
 
         XCTAssertTrue(model.availablePackages.isEmpty)
         XCTAssertTrue(model.sessionSkippedPackageIDs.isEmpty)
-        XCTAssertNil(model.lastHomebrewCheckDate)
-        XCTAssertNil(dependencies.preferences.lastHomebrewCheckDate)
+        XCTAssertNil(model.lastSuccessfulHomebrewCheckDate)
+        XCTAssertNil(dependencies.preferences.lastSuccessfulHomebrewCheckDate)
         XCTAssertTrue(model.shouldRunHomebrewCheck())
         XCTAssertEqual(model.statusMessage, "FreshBrew is ready")
     }
@@ -1164,7 +1164,7 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertTrue(model.availablePackages.isEmpty)
     }
 
-    func testFailedManualCheckStillRecordsAttemptTimestamp() async {
+    func testFailedManualCheckDoesNotRecordSuccessfulCheckTimestamp() async {
         let referenceDate = Date(timeIntervalSince1970: 30_000)
         let service = FakeHomebrewService(checkResponses: [
             .failure(.commandFailed(HomebrewCommandFailure(
@@ -1179,15 +1179,132 @@ final class MenuBarModelTests: XCTestCase {
 
         _ = await model.checkUpdates()
 
-        XCTAssertEqual(dependencies.preferences.lastHomebrewCheckDate, referenceDate)
-        XCTAssertEqual(model.lastHomebrewCheckDate, referenceDate)
+        XCTAssertNil(dependencies.preferences.lastSuccessfulHomebrewCheckDate)
+        XCTAssertNil(model.lastSuccessfulHomebrewCheckDate)
     }
 
-    func testRecentCheckPreventsSchedulingUnlockDelay() async {
+    func testSuccessfulCheckRecordsSuccessfulCheckTimestamp() async {
+        let startDate = Date(timeIntervalSince1970: 35_000)
+        let completionDate = startDate.addingTimeInterval(120)
+        let clock = MutableDateProvider(startDate)
+        let dependencies = makeDependencies(now: startDate)
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: FakeHomebrewService(
+                checkResponses: [.packages([])],
+                onCheck: { clock.set(completionDate) }
+            ),
+            dependencies: dependencies,
+            now: { clock.current() }
+        )
+
+        let succeeded = await model.checkUpdates()
+
+        XCTAssertTrue(succeeded)
+        XCTAssertEqual(
+            dependencies.preferences.lastSuccessfulHomebrewCheckDate,
+            completionDate
+        )
+        XCTAssertEqual(model.lastSuccessfulHomebrewCheckDate, completionDate)
+    }
+
+    func testFailedAutomaticCheckRemainsEligibleForNextUnlock() async {
+        let referenceDate = Date(timeIntervalSince1970: 40_000)
+        let service = FakeHomebrewService(checkResponses: [
+            .failure(.commandFailed(HomebrewCommandFailure(
+                operation: "check",
+                exitCode: 1,
+                output: "failed"
+            )))
+        ])
+        let dependencies = makeDependencies(now: referenceDate)
+        defer { dependencies.cleanUp() }
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        model.startAutomaticChecks()
+        model.scheduleCheckAfterUnlock(at: referenceDate)
+        await waitUntil { await service.checkCount() == 1 }
+
+        XCTAssertTrue(
+            model.shouldRunHomebrewCheck(
+                now: referenceDate.addingTimeInterval(1)
+            )
+        )
+        XCTAssertNil(dependencies.preferences.lastSuccessfulHomebrewCheckDate)
+    }
+
+    func testFailedCheckDoesNotReplacePreviousSuccessfulCheckDate() async {
+        let referenceDate = Date(timeIntervalSince1970: 50_000)
+        let previousSuccess = referenceDate.addingTimeInterval(-18_000)
+        let service = FakeHomebrewService(checkResponses: [
+            .failure(.commandFailed(HomebrewCommandFailure(
+                operation: "check",
+                exitCode: 1,
+                output: "failed"
+            )))
+        ])
+        let dependencies = makeDependencies(now: referenceDate)
+        defer { dependencies.cleanUp() }
+        dependencies.preferences.lastSuccessfulHomebrewCheckDate = previousSuccess
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        _ = await model.checkUpdates()
+
+        XCTAssertEqual(
+            dependencies.preferences.lastSuccessfulHomebrewCheckDate,
+            previousSuccess
+        )
+        XCTAssertEqual(model.lastSuccessfulHomebrewCheckDate, previousSuccess)
+    }
+
+    func testManualCheckCanRetryImmediatelyAfterFailure() async {
+        let referenceDate = Date(timeIntervalSince1970: 60_000)
+        let service = FakeHomebrewService(checkResponses: [
+            .failure(.networkUnavailable),
+            .packages([])
+        ])
+        let dependencies = makeDependencies(now: referenceDate)
+        defer { dependencies.cleanUp() }
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        let firstSucceeded = await model.checkUpdates()
+        let secondSucceeded = await model.checkUpdates()
+        let checkCount = await service.checkCount()
+
+        XCTAssertFalse(firstSucceeded)
+        XCTAssertTrue(secondSucceeded)
+        XCTAssertEqual(checkCount, 2)
+        XCTAssertEqual(model.lastSuccessfulHomebrewCheckDate, referenceDate)
+    }
+
+    func testFailedCheckRemainsEligibleAfterRelaunch() async {
+        let referenceDate = Date(timeIntervalSince1970: 70_000)
+        let service = FakeHomebrewService(checkResponses: [
+            .failure(.networkUnavailable)
+        ])
+        let dependencies = makeDependencies(now: referenceDate)
+        defer { dependencies.cleanUp() }
+        let firstModel = makeModel(service: service, dependencies: dependencies)
+        _ = await firstModel.checkUpdates()
+
+        let relaunchedModel = makeModel(
+            service: FakeHomebrewService(),
+            dependencies: dependencies
+        )
+
+        XCTAssertTrue(
+            relaunchedModel.shouldRunHomebrewCheck(
+                now: referenceDate.addingTimeInterval(1)
+            )
+        )
+    }
+
+    func testRecentSuccessfulCheckPreventsSchedulingUnlockDelay() async {
         let referenceDate = Date(timeIntervalSince1970: 20_000)
         let dependencies = makeDependencies(now: referenceDate)
         defer { dependencies.cleanUp() }
-        dependencies.preferences.lastHomebrewCheckDate = referenceDate.addingTimeInterval(-100)
+        dependencies.preferences.lastSuccessfulHomebrewCheckDate = referenceDate
+            .addingTimeInterval(-100)
         let sleepRecorder = SleepRecorder()
         let model = makeModel(
             service: FakeHomebrewService(),
@@ -1226,7 +1343,7 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertEqual(checkCount, 1)
     }
 
-    func testSecondIntervalGateSkipsCheckWhenAnotherAttemptOccursDuringDelay() async {
+    func testSecondIntervalGateSkipsCheckWhenAnotherCheckSucceedsDuringDelay() async {
         let referenceDate = Date(timeIntervalSince1970: 20_000)
         let service = FakeHomebrewService()
         let dependencies = makeDependencies(now: referenceDate)
@@ -1235,7 +1352,7 @@ final class MenuBarModelTests: XCTestCase {
         let model = makeModel(
             service: service,
             dependencies: dependencies,
-            sleep: { _ in preferences.lastHomebrewCheckDate = referenceDate }
+            sleep: { _ in preferences.lastSuccessfulHomebrewCheckDate = referenceDate }
         )
 
         model.startAutomaticChecks()
@@ -1332,7 +1449,7 @@ final class MenuBarModelTests: XCTestCase {
         let service = FakeHomebrewService(checkResponses: [.packages([])])
         let dependencies = makeDependencies(now: referenceDate)
         defer { dependencies.cleanUp() }
-        dependencies.preferences.lastHomebrewCheckDate = referenceDate
+        dependencies.preferences.lastSuccessfulHomebrewCheckDate = referenceDate
         dependencies.preferences.periodicCheckInterval = 3_600
         let controller = ControlledSleeper()
         let model = makeModel(
@@ -1356,6 +1473,7 @@ final class MenuBarModelTests: XCTestCase {
         service: FakeHomebrewService,
         dependencies: ModelDependencies,
         notificationService: any NotificationServing = NoopNotificationService(),
+        now: (@Sendable () -> Date)? = nil,
         sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { _ in }
     ) -> MenuBarModel {
         let referenceDate = dependencies.referenceDate
@@ -1367,7 +1485,7 @@ final class MenuBarModelTests: XCTestCase {
             errorLogStore: dependencies.errorLogStore,
             notificationService: notificationService,
             launchAtLoginService: FakeLaunchAtLoginService(),
-            now: { referenceDate },
+            now: now ?? { referenceDate },
             sleep: sleep
         )
     }
@@ -1436,6 +1554,23 @@ private struct ModelDependencies {
     }
 }
 
+private final class MutableDateProvider: @unchecked Sendable {
+    private let lock = NSLock()
+    private var date: Date
+
+    init(_ date: Date) {
+        self.date = date
+    }
+
+    func current() -> Date {
+        lock.withLock { date }
+    }
+
+    func set(_ date: Date) {
+        lock.withLock { self.date = date }
+    }
+}
+
 private actor FakeHomebrewService: HomebrewServicing {
     enum CheckResponse: Sendable {
         case packages([HomebrewPackage])
@@ -1451,17 +1586,20 @@ private actor FakeHomebrewService: HomebrewServicing {
     private var cleanupResponses: [Result<CleanupResult, HomebrewError>]
     private var cleanupDeepValues: [Bool] = []
     private var homepageURLs: [String: URL] = [:]
+    private let onCheck: (@Sendable () -> Void)?
 
     init(
         checkResponses: [CheckResponse] = [],
         updateResult: UpdateResult? = nil,
         updateResponses: [Result<UpdateResult, HomebrewError>] = [],
         cleanupResponses: [Result<CleanupResult, HomebrewError>] = [],
-        homepageURLs: [String: URL] = [:]
+        homepageURLs: [String: URL] = [:],
+        onCheck: (@Sendable () -> Void)? = nil
     ) {
         self.checkResponses = checkResponses
         self.cleanupResponses = cleanupResponses
         self.homepageURLs = homepageURLs
+        self.onCheck = onCheck
         if let updateResult {
             self.updateResponses = [.success(updateResult)]
         } else {
@@ -1474,6 +1612,7 @@ private actor FakeHomebrewService: HomebrewServicing {
         refreshMetadata: Bool
     ) async throws -> [HomebrewPackage] {
         checkGreedyValues.append(greedy)
+        onCheck?()
         guard !checkResponses.isEmpty else { return [] }
         switch checkResponses.removeFirst() {
         case let .packages(packages):
