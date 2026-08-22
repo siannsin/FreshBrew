@@ -39,6 +39,7 @@ fi
 OUTPUT_NAME="$APP_NAME-$VERSION-universal"
 APP_BUNDLE="$DERIVED_DATA/Build/Products/Release/$APP_NAME.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
+ASKPASS_BINARY="$APP_BUNDLE/Contents/Helpers/FreshBrewAskpass"
 DMG_PATH="$DIST_DIR/$OUTPUT_NAME.dmg"
 CHECKSUM_PATH="$DMG_PATH.sha256"
 
@@ -60,7 +61,13 @@ if ! lipo "$APP_BINARY" -verify_arch arm64 x86_64; then
   exit 1
 fi
 
+if ! lipo "$ASKPASS_BINARY" -verify_arch arm64 x86_64; then
+  echo "FreshBrewAskpass was not built with both arm64 and x86_64 architectures." >&2
+  exit 1
+fi
+
 echo "Built architectures: $(lipo -archs "$APP_BINARY")"
+echo "Askpass architectures: $(lipo -archs "$ASKPASS_BINARY")"
 
 BUILT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_BUNDLE/Contents/Info.plist")"
 if [[ "$BUILT_VERSION" != "$VERSION" ]]; then
@@ -70,6 +77,7 @@ fi
 
 # Ad-hoc signing preserves bundle integrity but does not provide Developer ID
 # trust or notarization. Downloaded releases still require Gatekeeper approval.
+codesign --force --sign - --options runtime --timestamp=none "$ASKPASS_BINARY"
 codesign --force --sign - --options runtime --timestamp=none "$APP_BUNDLE"
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 

@@ -21,7 +21,6 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var lastSuccessfulHomebrewCheckDate: Date?
     @Published private(set) var lastErrorMessage: String?
     @Published private(set) var packageHomepageErrorMessage: String?
-    @Published private(set) var administratorAccessRequired = false
     @Published private(set) var sessionSkippedPackageIDs = Set<String>()
     @Published private(set) var rememberedSkippedPackageIDs: Set<String>
 
@@ -92,7 +91,6 @@ final class MenuBarModel: ObservableObject {
     private var automaticChecksStarted = false
     private var pendingUnlockCheckTask: Task<Void, Never>?
     private var periodicCheckTask: Task<Void, Never>?
-    private var lastAttemptedPackages: [HomebrewPackage] = []
     private var pendingUpdateKnownPackageIDs: Set<String>?
     private var pendingCompletedPackages: [UpdatedPackage] = []
     private var pendingVerificationUnavailable = false
@@ -186,52 +184,12 @@ final class MenuBarModel: ObservableObject {
         }
     }
 
-    func updateAll(administratorPassword: String? = nil) async -> UpdateResult? {
-        await update(
-            packages: visiblePackages,
-            administratorPassword: administratorPassword
-        )
+    func updateAll() async -> UpdateResult? {
+        await update(packages: visiblePackages)
     }
 
-    func update(
-        package: HomebrewPackage,
-        administratorPassword: String? = nil
-    ) async -> UpdateResult? {
-        await update(
-            packages: [package],
-            administratorPassword: administratorPassword
-        )
-    }
-
-    func retryLastUpdate(administratorPassword: String) async -> UpdateResult? {
-        guard administratorAccessRequired else { return nil }
-        let remainingIDs = Set(availablePackages.map(\.id))
-        let completedIDs = Set(pendingCompletedPackages.map(\.id))
-        let retryPackages = lastAttemptedPackages.filter {
-            remainingIDs.contains($0.id) && !completedIDs.contains($0.id)
-        }
-        guard !retryPackages.isEmpty else {
-            statusMessage = "Update failed"
-            await finalizePendingUpdateWorkflow(hadFailures: true)
-            return nil
-        }
-        return await update(
-            packages: retryPackages,
-            administratorPassword: administratorPassword,
-            isAdministratorRetry: true
-        )
-    }
-
-    func finishAdministratorRetryAfterFailure() async {
-        guard administratorAccessRequired else { return }
-        statusMessage = "Update failed"
-        await finalizePendingAdministratorWorkflow()
-    }
-
-    func cancelAdministratorRetry() async {
-        guard administratorAccessRequired else { return }
-        statusMessage = "Update failed"
-        await finalizePendingAdministratorWorkflow()
+    func update(package: HomebrewPackage) async -> UpdateResult? {
+        await update(packages: [package])
     }
 
     func setLaunchAtLoginEnabled(_ enabled: Bool) {
@@ -374,18 +332,12 @@ final class MenuBarModel: ObservableObject {
     }
 
     private func update(
-        packages: [HomebrewPackage],
-        administratorPassword: String?,
-        isAdministratorRetry: Bool = false
+        packages: [HomebrewPackage]
     ) async -> UpdateResult? {
         guard !isRunning, !packages.isEmpty else { return nil }
         let currentKnownPackageIDs = Set((availablePackages + packages).map(\.id))
-        if !isAdministratorRetry {
-            resetPendingUpdateWorkflow()
-            lastAttemptedPackages = packages
-            pendingUpdateKnownPackageIDs = currentKnownPackageIDs
-        }
-        administratorAccessRequired = false
+        resetPendingUpdateWorkflow()
+        pendingUpdateKnownPackageIDs = currentKnownPackageIDs
         activity = .updating
         statusMessage = "Updating \(packages.count) package\(packages.count == 1 ? "" : "s")…"
         lastErrorMessage = nil
@@ -401,7 +353,6 @@ final class MenuBarModel: ObservableObject {
             let result = try await homebrewService.update(
                 packages: packages,
                 greedy: greedyModeEnabled,
-                administratorPassword: administratorPassword,
                 onProgress: { [weak self] progress in
                     Task { @MainActor in
                         self?.progress = progress
@@ -417,17 +368,6 @@ final class MenuBarModel: ObservableObject {
             mergePendingCompletedPackages(
                 attachHomepageURLs(to: result.completedPackages)
             )
-            administratorAccessRequired = result.failures.contains { failure in
-                if case .permissionRequired = HomebrewError.classified(
-                    operation: failure.operation,
-                    exitCode: failure.exitCode,
-                    output: failure.output
-                ) {
-                    return true
-                }
-                return false
-            }
-
             if let verificationFailure = result.verification.failure {
                 statusMessage = "Verification failed"
                 lastErrorMessage = "FreshBrew could not verify the remaining updates."
@@ -456,21 +396,11 @@ final class MenuBarModel: ObservableObject {
                         timestamp: result.timestamp
                     )
                 }
-                if !administratorAccessRequired {
-                    await finalizePendingUpdateWorkflow(hadFailures: true)
-                }
+                await finalizePendingUpdateWorkflow(hadFailures: true)
             }
 
             return result
         } catch {
-            let requiresAdministratorAccess: Bool
-            if let homebrewError = error as? HomebrewError,
-               case .permissionRequired = homebrewError {
-                requiresAdministratorAccess = true
-                administratorAccessRequired = true
-            } else {
-                requiresAdministratorAccess = false
-            }
             await handleFailure(
                 error,
                 operation: "update packages",
@@ -480,9 +410,7 @@ final class MenuBarModel: ObservableObject {
                     timeout: "Update timed out"
                 )
             )
-            if !requiresAdministratorAccess {
-                await finalizePendingUpdateWorkflow(hadFailures: true)
-            }
+            await finalizePendingUpdateWorkflow(hadFailures: true)
             return nil
         }
     }
@@ -491,10 +419,6 @@ final class MenuBarModel: ObservableObject {
         pendingUpdateKnownPackageIDs = nil
         pendingCompletedPackages = []
         pendingVerificationUnavailable = false
-    }
-
-    private func finalizePendingAdministratorWorkflow() async {
-        await finalizePendingUpdateWorkflow(hadFailures: true)
     }
 
     private func mergePendingCompletedPackages(_ packages: [UpdatedPackage]) {
@@ -568,7 +492,6 @@ final class MenuBarModel: ObservableObject {
         }.count
         var cleanupOutcome: UpdateCleanupOutcome?
 
-        administratorAccessRequired = false
         if !completedPackages.isEmpty {
             updateHistory = historyStore.append(
                 packages: completedPackages,

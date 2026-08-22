@@ -510,340 +510,13 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertEqual(logEntries?.first?.output, "verification timed out")
     }
 
-    func testAdministratorRetryExcludesEvidenceCompletedBeforeUnavailableVerification() async {
+    func testPermissionFailureFinalizesPartialSuccessInOneBatch() async {
         let formula = makePackage(named: "ripgrep", kind: .formula)
         let cask = makePackage(named: "stats", kind: .cask)
         let permissionFailure = HomebrewCommandFailure(
             operation: "upgrade casks",
             exitCode: 1,
-            output: "permission denied"
-        )
-        let verificationFailure = HomebrewCommandFailure(
-            operation: "verify updates",
-            exitCode: -1,
-            output: "verification timed out",
-            kind: .timeout
-        )
-        let service = FakeHomebrewService(
-            checkResponses: [.packages([formula, cask])],
-            updateResponses: [
-                .success(UpdateResult(
-                    completedPackages: [makeUpdatedPackage(from: formula)],
-                    remainingPackages: [cask],
-                    failures: [permissionFailure],
-                    timestamp: Date(timeIntervalSince1970: 500),
-                    verification: .unavailable(verificationFailure)
-                )),
-                .success(UpdateResult(
-                    completedPackages: [makeUpdatedPackage(from: cask)],
-                    remainingPackages: [],
-                    failures: [],
-                    timestamp: Date(timeIntervalSince1970: 501)
-                ))
-            ]
-        )
-        let dependencies = makeDependencies()
-        defer { dependencies.cleanUp() }
-        let model = makeModel(service: service, dependencies: dependencies)
-
-        _ = await model.checkUpdates()
-        _ = await model.updateAll()
-        XCTAssertTrue(model.administratorAccessRequired)
-        _ = await model.retryLastUpdate(administratorPassword: "password")
-
-        let updatePackageIDBatches = await service.recordedUpdatePackageIDBatches()
-        XCTAssertEqual(
-            updatePackageIDBatches,
-            [[formula.id, cask.id], [cask.id]]
-        )
-        XCTAssertEqual(
-            model.latestUpdate?.packages.map(\.name),
-            ["ripgrep", "stats"]
-        )
-        XCTAssertTrue(model.availablePackages.isEmpty)
-    }
-
-    func testPermissionResultWaitsForAdministratorRetryBeforePostingNotification() async {
-        let package = makePackage(named: "stats", kind: .cask)
-        let permissionFailure = HomebrewCommandFailure(
-            operation: "upgrade casks",
-            exitCode: 1,
-            output: "sudo: a password is required"
-        )
-        let service = FakeHomebrewService(
-            checkResponses: [.packages([package])],
-            updateResponses: [
-                .success(UpdateResult(
-                    completedPackages: [],
-                    remainingPackages: [package],
-                    failures: [permissionFailure],
-                    timestamp: Date(timeIntervalSince1970: 500)
-                )),
-                .success(UpdateResult(
-                    completedPackages: [makeUpdatedPackage(from: package)],
-                    remainingPackages: [],
-                    failures: [],
-                    timestamp: Date(timeIntervalSince1970: 501)
-                ))
-            ]
-        )
-        let notifications = FakeNotificationService()
-        let dependencies = makeDependencies()
-        defer { dependencies.cleanUp() }
-        let model = makeModel(
-            service: service,
-            dependencies: dependencies,
-            notificationService: notifications
-        )
-
-        _ = await model.checkUpdates()
-        _ = await model.updateAll()
-
-        XCTAssertTrue(model.administratorAccessRequired)
-        let preRetryCompletions = await notifications.completions()
-        XCTAssertTrue(preRetryCompletions.isEmpty)
-
-        _ = await model.retryLastUpdate(administratorPassword: "secret")
-
-        XCTAssertFalse(model.administratorAccessRequired)
-        let postRetryCompletions = await notifications.completions()
-        XCTAssertEqual(
-            postRetryCompletions,
-            [UpdateCompletion(
-                updatedCount: 1,
-                remainingUpdateCount: 0,
-                hadFailures: false,
-                newlyAvailableCount: 0,
-                cleanupOutcome: nil
-            )]
-        )
-    }
-
-    func testAdministratorRetryPreservesInitialNewPackageBaseline() async {
-        let package = makePackage(named: "stats", kind: .cask)
-        let newlyAvailablePackage = makePackage(named: "wget", kind: .formula)
-        let permissionFailure = HomebrewCommandFailure(
-            operation: "upgrade casks",
-            exitCode: 1,
-            output: "sudo: a password is required"
-        )
-        let service = FakeHomebrewService(
-            checkResponses: [.packages([package])],
-            updateResponses: [
-                .success(UpdateResult(
-                    completedPackages: [],
-                    remainingPackages: [package, newlyAvailablePackage],
-                    failures: [permissionFailure],
-                    timestamp: Date(timeIntervalSince1970: 500)
-                )),
-                .success(UpdateResult(
-                    completedPackages: [makeUpdatedPackage(from: package)],
-                    remainingPackages: [newlyAvailablePackage],
-                    failures: [],
-                    timestamp: Date(timeIntervalSince1970: 501)
-                ))
-            ]
-        )
-        let notifications = FakeNotificationService()
-        let dependencies = makeDependencies()
-        defer { dependencies.cleanUp() }
-        let model = makeModel(
-            service: service,
-            dependencies: dependencies,
-            notificationService: notifications
-        )
-
-        _ = await model.checkUpdates()
-        _ = await model.updateAll()
-        _ = await model.retryLastUpdate(administratorPassword: "secret")
-
-        let completionValues = await notifications.completions()
-        XCTAssertEqual(
-            completionValues,
-            [UpdateCompletion(
-                updatedCount: 1,
-                remainingUpdateCount: 1,
-                hadFailures: false,
-                newlyAvailableCount: 1,
-                cleanupOutcome: nil
-            )]
-        )
-    }
-
-    func testAdministratorRetryNotificationIncludesEarlierCompletedPackages() async {
-        let formula = makePackage(named: "ripgrep", kind: .formula)
-        let cask = makePackage(named: "stats", kind: .cask)
-        let permissionFailure = HomebrewCommandFailure(
-            operation: "upgrade casks",
-            exitCode: 1,
-            output: "sudo: a password is required"
-        )
-        let service = FakeHomebrewService(
-            checkResponses: [.packages([formula, cask])],
-            updateResponses: [
-                .success(UpdateResult(
-                    completedPackages: [makeUpdatedPackage(from: formula)],
-                    remainingPackages: [cask],
-                    failures: [permissionFailure],
-                    timestamp: Date(timeIntervalSince1970: 500)
-                )),
-                .success(UpdateResult(
-                    completedPackages: [makeUpdatedPackage(from: cask)],
-                    remainingPackages: [],
-                    failures: [],
-                    timestamp: Date(timeIntervalSince1970: 501)
-                ))
-            ]
-        )
-        let notifications = FakeNotificationService()
-        let dependencies = makeDependencies()
-        defer { dependencies.cleanUp() }
-        let model = makeModel(
-            service: service,
-            dependencies: dependencies,
-            notificationService: notifications
-        )
-        let coordinator = UpdateActionCoordinator(
-            model: model,
-            passwordPrompt: FakeAdminPasswordPrompt(passwords: ["secret"])
-        )
-
-        _ = await model.checkUpdates()
-        await coordinator.updateAll()
-
-        let completionValues = await notifications.completions()
-        XCTAssertEqual(
-            completionValues,
-            [UpdateCompletion(
-                updatedCount: 2,
-                remainingUpdateCount: 0,
-                hadFailures: false,
-                newlyAvailableCount: 0,
-                cleanupOutcome: nil
-            )]
-        )
-        XCTAssertEqual(model.updateHistory.count, 1)
-        XCTAssertEqual(
-            model.latestUpdate?.packages.map(\.name),
-            ["ripgrep", "stats"]
-        )
-    }
-
-    func testAdministratorRetryRunsAutomaticCleanupOnceAfterFinalSuccess() async {
-        let formula = makePackage(named: "ripgrep", kind: .formula)
-        let cask = makePackage(named: "stats", kind: .cask)
-        let permissionFailure = HomebrewCommandFailure(
-            operation: "upgrade casks",
-            exitCode: 1,
-            output: "sudo: a password is required"
-        )
-        let service = FakeHomebrewService(
-            checkResponses: [.packages([formula, cask])],
-            updateResponses: [
-                .success(UpdateResult(
-                    completedPackages: [makeUpdatedPackage(from: formula)],
-                    remainingPackages: [cask],
-                    failures: [permissionFailure],
-                    timestamp: Date(timeIntervalSince1970: 500)
-                )),
-                .success(UpdateResult(
-                    completedPackages: [makeUpdatedPackage(from: cask)],
-                    remainingPackages: [],
-                    failures: [],
-                    timestamp: Date(timeIntervalSince1970: 501)
-                ))
-            ]
-        )
-        let dependencies = makeDependencies()
-        defer { dependencies.cleanUp() }
-        let model = makeModel(service: service, dependencies: dependencies)
-        model.autoCleanupEnabled = true
-
-        _ = await model.checkUpdates()
-        _ = await model.updateAll()
-
-        XCTAssertTrue(model.updateHistory.isEmpty)
-        let cleanupBeforeRetry = await service.recordedCleanupDeepValues()
-        XCTAssertTrue(cleanupBeforeRetry.isEmpty)
-
-        _ = await model.retryLastUpdate(administratorPassword: "secret")
-
-        let cleanupAfterRetry = await service.recordedCleanupDeepValues()
-        XCTAssertEqual(cleanupAfterRetry, [false])
-        XCTAssertEqual(model.updateHistory.count, 1)
-        XCTAssertEqual(model.latestUpdate?.packages.count, 2)
-    }
-
-    func testThreeFailedPasswordAttemptsPreserveEarlierCompletedPackages() async {
-        let formula = makePackage(named: "ripgrep", kind: .formula)
-        let cask = makePackage(named: "stats", kind: .cask)
-        let permissionFailure = HomebrewCommandFailure(
-            operation: "upgrade casks",
-            exitCode: 1,
-            output: """
-            Application 'com.example.stats' quit successfully.
-            sudo: a password is required
-            """
-        )
-        let initialResponse: Result<UpdateResult, HomebrewError> = .success(UpdateResult(
-            completedPackages: [makeUpdatedPackage(from: formula)],
-            remainingPackages: [cask],
-            failures: [permissionFailure],
-            timestamp: Date(timeIntervalSince1970: 500)
-        ))
-        let retryResponse: Result<UpdateResult, HomebrewError> = .success(UpdateResult(
-            completedPackages: [],
-            remainingPackages: [cask],
-            failures: [permissionFailure],
-            timestamp: Date(timeIntervalSince1970: 501)
-        ))
-        let service = FakeHomebrewService(
-            checkResponses: [.packages([formula, cask])],
-            updateResponses: [initialResponse] + Array(repeating: retryResponse, count: 3)
-        )
-        let notifications = FakeNotificationService()
-        let dependencies = makeDependencies()
-        defer { dependencies.cleanUp() }
-        let model = makeModel(
-            service: service,
-            dependencies: dependencies,
-            notificationService: notifications
-        )
-        let coordinator = UpdateActionCoordinator(
-            model: model,
-            passwordPrompt: FakeAdminPasswordPrompt(
-                passwords: ["wrong-1", "wrong-2", "wrong-3"]
-            )
-        )
-
-        _ = await model.checkUpdates()
-        await coordinator.updateAll()
-
-        let completionValues = await notifications.completions()
-        let passwords = await service.recordedAdministratorPasswords()
-        XCTAssertFalse(model.administratorAccessRequired)
-        XCTAssertEqual(passwords, [nil, "wrong-1", "wrong-2", "wrong-3"])
-        XCTAssertEqual(
-            completionValues,
-            [UpdateCompletion(
-                updatedCount: 1,
-                remainingUpdateCount: 1,
-                hadFailures: true,
-                newlyAvailableCount: 0,
-                cleanupOutcome: nil
-            )]
-        )
-        XCTAssertEqual(model.updateHistory.count, 1)
-        XCTAssertEqual(model.latestUpdate?.packages.map(\.name), ["ripgrep"])
-    }
-
-    func testCancellingPasswordPromptReportsEarlierCompletedPackages() async {
-        let formula = makePackage(named: "ripgrep", kind: .formula)
-        let cask = makePackage(named: "stats", kind: .cask)
-        let permissionFailure = HomebrewCommandFailure(
-            operation: "upgrade casks",
-            exitCode: 1,
-            output: "sudo: a password is required"
+            output: "sudo: authentication failed"
         )
         let service = FakeHomebrewService(
             checkResponses: [.packages([formula, cask])],
@@ -862,18 +535,17 @@ final class MenuBarModelTests: XCTestCase {
             dependencies: dependencies,
             notificationService: notifications
         )
-        let coordinator = UpdateActionCoordinator(
-            model: model,
-            passwordPrompt: FakeAdminPasswordPrompt(passwords: [])
-        )
 
         _ = await model.checkUpdates()
-        await coordinator.updateAll()
+        _ = await model.updateAll()
 
-        let completionValues = await notifications.completions()
-        XCTAssertFalse(model.administratorAccessRequired)
+        let updateBatches = await service.recordedUpdatePackageIDBatches()
+        XCTAssertEqual(updateBatches, [[formula.id, cask.id]])
+        XCTAssertEqual(model.latestUpdate?.packages.map(\.name), ["ripgrep"])
+        XCTAssertEqual(model.availablePackages.map(\.id), [cask.id])
+        let completions = await notifications.completions()
         XCTAssertEqual(
-            completionValues,
+            completions,
             [UpdateCompletion(
                 updatedCount: 1,
                 remainingUpdateCount: 1,
@@ -882,16 +554,14 @@ final class MenuBarModelTests: XCTestCase {
                 cleanupOutcome: nil
             )]
         )
-        XCTAssertEqual(model.updateHistory.count, 1)
-        XCTAssertEqual(model.latestUpdate?.packages.map(\.name), ["ripgrep"])
     }
 
-    func testCancellingPasswordPromptWithoutSuccessPostsFailureNotification() async {
+    func testPermissionCancellationWithoutSuccessPostsFailureNotification() async {
         let package = makePackage(named: "stats", kind: .cask)
         let permissionFailure = HomebrewCommandFailure(
             operation: "upgrade casks",
             exitCode: 1,
-            output: "sudo: a password is required"
+            output: "sudo: no password was provided"
         )
         let service = FakeHomebrewService(
             checkResponses: [.packages([package])],
@@ -910,18 +580,13 @@ final class MenuBarModelTests: XCTestCase {
             dependencies: dependencies,
             notificationService: notifications
         )
-        let coordinator = UpdateActionCoordinator(
-            model: model,
-            passwordPrompt: FakeAdminPasswordPrompt(passwords: [])
-        )
 
         _ = await model.checkUpdates()
-        await coordinator.updateAll()
+        _ = await model.updateAll()
 
-        let completionValues = await notifications.completions()
-        XCTAssertFalse(model.administratorAccessRequired)
+        let completions = await notifications.completions()
         XCTAssertEqual(
-            completionValues,
+            completions,
             [UpdateCompletion(
                 updatedCount: 0,
                 remainingUpdateCount: 1,
@@ -930,8 +595,8 @@ final class MenuBarModelTests: XCTestCase {
                 cleanupOutcome: nil
             )]
         )
+        XCTAssertTrue(model.updateHistory.isEmpty)
     }
-
     func testThrownUpdateFailurePostsFinalFailureNotification() async {
         let package = makePackage(named: "ripgrep", kind: .formula)
         let service = FakeHomebrewService(
@@ -1131,39 +796,35 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertTrue(entries?.first?.output.contains("remote did not respond") == true)
     }
 
-    func testPermissionFailureCanRetrySamePackagesWithCurrentGreedyMode() async {
+    func testPermissionFailureUsesCurrentGreedyModeInSingleBatch() async {
         let package = makePackage(named: "stats", kind: .cask)
-        let completedResult = UpdateResult(
-            completedPackages: [makeUpdatedPackage(from: package)],
-            remainingPackages: [],
-            failures: [],
-            timestamp: Date(timeIntervalSince1970: 500)
-        )
         let service = FakeHomebrewService(
             checkResponses: [.packages([package])],
-            updateResponses: [
-                .failure(.permissionRequired("sudo: a password is required")),
-                .success(completedResult)
-            ]
+            updateResult: UpdateResult(
+                completedPackages: [],
+                remainingPackages: [package],
+                failures: [HomebrewCommandFailure(
+                    operation: "upgrade casks",
+                    exitCode: 1,
+                    output: "sudo: authentication failed"
+                )],
+                timestamp: Date(timeIntervalSince1970: 500)
+            )
         )
         let dependencies = makeDependencies()
         defer { dependencies.cleanUp() }
         let model = makeModel(service: service, dependencies: dependencies)
         model.greedyModeEnabled = true
+
         _ = await model.checkUpdates()
-
         _ = await model.updateAll()
-        XCTAssertTrue(model.administratorAccessRequired)
-        _ = await model.retryLastUpdate(administratorPassword: "secret")
 
-        XCTAssertFalse(model.administratorAccessRequired)
         let updateModes = await service.recordedUpdateGreedyValues()
-        let passwords = await service.recordedAdministratorPasswords()
-        XCTAssertEqual(updateModes, [true, true])
-        XCTAssertEqual(passwords, [nil, "secret"])
-        XCTAssertTrue(model.availablePackages.isEmpty)
+        let updateBatches = await service.recordedUpdatePackageIDBatches()
+        XCTAssertEqual(updateModes, [true])
+        XCTAssertEqual(updateBatches, [[package.id]])
+        XCTAssertEqual(model.availablePackages.map(\.id), [package.id])
     }
-
     func testFailedManualCheckDoesNotRecordSuccessfulCheckTimestamp() async {
         let referenceDate = Date(timeIntervalSince1970: 30_000)
         let service = FakeHomebrewService(checkResponses: [
@@ -1582,7 +1243,6 @@ private actor FakeHomebrewService: HomebrewServicing {
     private var checkGreedyValues: [Bool] = []
     private var updateGreedyValues: [Bool] = []
     private var updatePackageIDBatches: [[String]] = []
-    private var administratorPasswords: [String?] = []
     private var cleanupResponses: [Result<CleanupResult, HomebrewError>]
     private var cleanupDeepValues: [Bool] = []
     private var homepageURLs: [String: URL] = [:]
@@ -1631,12 +1291,10 @@ private actor FakeHomebrewService: HomebrewServicing {
     func update(
         packages: [HomebrewPackage],
         greedy: Bool,
-        administratorPassword: String?,
         onProgress: (@Sendable (UpdateProgress) -> Void)?
     ) async throws -> UpdateResult {
         updateGreedyValues.append(greedy)
         updatePackageIDBatches.append(packages.map(\.id))
-        administratorPasswords.append(administratorPassword)
         if !updateResponses.isEmpty {
             return try updateResponses.removeFirst().get()
         }
@@ -1666,10 +1324,6 @@ private actor FakeHomebrewService: HomebrewServicing {
 
     func recordedUpdatePackageIDBatches() -> [[String]] {
         updatePackageIDBatches
-    }
-
-    func recordedAdministratorPasswords() -> [String?] {
-        administratorPasswords
     }
 
     func checkCount() -> Int {
@@ -1776,20 +1430,6 @@ private actor SleepRecorder {
 
     func recordedValues() -> [TimeInterval] {
         values
-    }
-}
-
-@MainActor
-private final class FakeAdminPasswordPrompt: AdminPasswordPrompting {
-    private var passwords: [String]
-
-    init(passwords: [String]) {
-        self.passwords = passwords
-    }
-
-    func requestPassword() async -> String? {
-        guard !passwords.isEmpty else { return nil }
-        return passwords.removeFirst()
     }
 }
 

@@ -152,11 +152,13 @@ actor HomebrewService {
     private let runner: any CommandRunning
     private let executableIsAvailable: @Sendable (URL) -> Bool
     private let networkAvailabilityChecker: any NetworkAvailabilityChecking
+    private let authorizationContext: AdminAuthorizationContext?
 
     init(
         executableURL: URL? = nil,
         runner: any CommandRunning = SystemCommandRunner(),
         networkAvailabilityChecker: any NetworkAvailabilityChecking = SystemNetworkAvailabilityChecker(),
+        authorizationContext: AdminAuthorizationContext? = nil,
         executableIsAvailable: @escaping @Sendable (URL) -> Bool = {
             FileManager.default.isExecutableFile(atPath: $0.path)
         }
@@ -167,6 +169,7 @@ actor HomebrewService {
         self.runner = runner
         self.networkAvailabilityChecker = networkAvailabilityChecker
         self.executableIsAvailable = executableIsAvailable
+        self.authorizationContext = authorizationContext ?? AdminAuthorizationContext.bundled()
     }
 
     func checkOutdated(
@@ -254,7 +257,6 @@ actor HomebrewService {
     func update(
         packages: [HomebrewPackage],
         greedy: Bool,
-        administratorPassword: String? = nil,
         onProgress: (@Sendable (UpdateProgress) -> Void)? = nil
     ) async throws -> UpdateResult {
         try ensureExecutableIsAvailable()
@@ -269,11 +271,6 @@ actor HomebrewService {
             )
         }
         try await ensureNetworkIsAvailable()
-
-        let authorizationContext = try administratorPassword.map {
-            try AdminAuthorizationContext.create(password: $0)
-        }
-        defer { authorizationContext?.removeFiles() }
 
         let environment = authorizationContext?.environment ?? [:]
         var commandFailures: [HomebrewCommandFailure] = []
@@ -431,7 +428,6 @@ actor HomebrewService {
         _ package: HomebrewPackage,
         applicationURL: URL,
         greedy: Bool,
-        administratorPassword: String? = nil,
         recoveryStore: CaskRecoveryStore = CaskRecoveryStore(),
         onProgress: (@Sendable (UpdateProgress) -> Void)? = nil
     ) async throws -> UpdateResult {
@@ -448,11 +444,6 @@ actor HomebrewService {
         var shouldRestoreBackup = true
 
         do {
-            let authorizationContext = try administratorPassword.map {
-                try AdminAuthorizationContext.create(password: $0)
-            }
-            defer { authorizationContext?.removeFiles() }
-
             onProgress?(UpdateProgress(
                 stage: .reinstalling,
                 packageName: package.name,

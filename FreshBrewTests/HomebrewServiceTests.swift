@@ -474,8 +474,9 @@ final class HomebrewServiceTests: XCTestCase {
         XCTAssertTrue(failure.output.contains("unexpected verification output"))
     }
 
-    func testUpdateUsesFreshBrewAskpassEnvironmentAndRemovesTemporaryFiles() async throws {
+    func testUpdateUsesBundledAskpassWithoutTransportingPassword() async throws {
         let package = package(named: "firefox", kind: .cask)
+        let helperURL = URL(fileURLWithPath: "/Applications/FreshBrew.app/Contents/Helpers/FreshBrewAskpass")
         let runner = StubCommandRunner(results: [
             CommandResult(exitCode: 0, standardOutput: "updated", standardError: ""),
             CommandResult(
@@ -484,23 +485,19 @@ final class HomebrewServiceTests: XCTestCase {
                 standardError: ""
             )
         ])
-        let service = makeService(runner: runner)
-
-        _ = try await service.update(
-            packages: [package],
-            greedy: false,
-            administratorPassword: "example-password"
+        let service = makeService(
+            runner: runner,
+            authorizationContext: AdminAuthorizationContext(
+                askpassExecutableURL: helperURL
+            )
         )
 
-        let requests = await runner.recordedRequests()
-        let askpassPath = try XCTUnwrap(requests.first?.environment["SUDO_ASKPASS"])
-        XCTAssertTrue(URL(fileURLWithPath: askpassPath).lastPathComponent.hasPrefix("freshbrew-askpass-"))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: askpassPath))
+        _ = try await service.update(packages: [package], greedy: false)
 
-        let environmentContainsPassword = requests.first?.environment.values.contains {
-            $0.contains("example-password")
-        } ?? true
-        XCTAssertFalse(environmentContainsPassword)
+        let requests = await runner.recordedRequests()
+        XCTAssertEqual(requests.first?.environment["SUDO_ASKPASS"], helperURL.path)
+        XCTAssertNil(requests.first?.environment["SUDO_ASKPASS_REQUIRE"])
+        XCTAssertFalse(requests.first?.arguments.contains { $0.contains("password") } ?? true)
     }
 
     func testCleanupUsesDeepPruneOnlyWhenRequested() async throws {
@@ -552,7 +549,8 @@ final class HomebrewServiceTests: XCTestCase {
 
     private func makeService(
         runner: StubCommandRunner,
-        networkIsAvailable: Bool = true
+        networkIsAvailable: Bool = true,
+        authorizationContext: AdminAuthorizationContext? = nil
     ) -> HomebrewService {
         HomebrewService(
             executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/brew"),
@@ -560,6 +558,7 @@ final class HomebrewServiceTests: XCTestCase {
             networkAvailabilityChecker: StubNetworkAvailabilityChecker(
                 isAvailable: networkIsAvailable
             ),
+            authorizationContext: authorizationContext,
             executableIsAvailable: { _ in true }
         )
     }

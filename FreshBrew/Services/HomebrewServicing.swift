@@ -13,7 +13,6 @@ protocol HomebrewServicing: Sendable {
     func update(
         packages: [HomebrewPackage],
         greedy: Bool,
-        administratorPassword: String?,
         onProgress: (@Sendable (UpdateProgress) -> Void)?
     ) async throws -> UpdateResult
 

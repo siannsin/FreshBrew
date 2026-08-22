@@ -49,3 +49,7 @@ jobs:
           lipo \
             /private/tmp/freshbrew-release-derived-data/Build/Products/Release/FreshBrew.app/Contents/MacOS/FreshBrew \
             -verify_arch arm64 x86_64
+
+          lipo \
+            /private/tmp/freshbrew-release-derived-data/Build/Products/Release/FreshBrew.app/Contents/Helpers/FreshBrewAskpass \
+            -verify_arch arm64 x86_64

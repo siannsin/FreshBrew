@@ -20,40 +20,55 @@ final class AdminAuthorizationContextTests: XCTestCase {
         }
     }
 
-    func testContextUsesFreshBrewNamesAndRestrictivePermissions() throws {
-        let context = try AdminAuthorizationContext.create(
-            password: "private-value",
-            directory: temporaryDirectory
+    func testBundledContextUsesExecutableHelperOnly() throws {
+        let appBundleURL = temporaryDirectory.appendingPathComponent(
+            "FreshBrew.app",
+            isDirectory: true
         )
-        defer { context.removeFiles() }
-
-        XCTAssertTrue(context.passwordFileURL.lastPathComponent.hasPrefix("freshbrew-pw-"))
-        XCTAssertTrue(context.askpassScriptURL.lastPathComponent.hasPrefix("freshbrew-askpass-"))
-        XCTAssertEqual(context.environment["SUDO_ASKPASS"], context.askpassScriptURL.path)
-        XCTAssertEqual(context.environment["SUDO_ASKPASS_REQUIRE"], "force")
-
-        let passwordAttributes = try FileManager.default.attributesOfItem(
-            atPath: context.passwordFileURL.path
+        let helperURL = appBundleURL
+            .appendingPathComponent("Contents/Helpers", isDirectory: true)
+            .appendingPathComponent(AdminAuthorizationContext.helperName)
+        try FileManager.default.createDirectory(
+            at: helperURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
         )
-        let scriptAttributes = try FileManager.default.attributesOfItem(
-            atPath: context.askpassScriptURL.path
-        )
-        XCTAssertEqual(passwordAttributes[.posixPermissions] as? NSNumber, NSNumber(value: 0o600))
-        XCTAssertEqual(scriptAttributes[.posixPermissions] as? NSNumber, NSNumber(value: 0o700))
+        XCTAssertTrue(FileManager.default.createFile(
+            atPath: helperURL.path,
+            contents: Data(),
+            attributes: [.posixPermissions: 0o700]
+        ))
 
-        let script = try String(contentsOf: context.askpassScriptURL, encoding: .utf8)
-        XCTAssertFalse(script.contains("private-value"))
+        let context = try XCTUnwrap(AdminAuthorizationContext.bundled(
+            appBundleURL: appBundleURL
+        ))
+
+        XCTAssertEqual(context.askpassExecutableURL, helperURL)
+        XCTAssertEqual(context.environment, ["SUDO_ASKPASS": helperURL.path])
+        XCTAssertNil(context.environment["SUDO_ASKPASS_REQUIRE"])
+        let temporaryItems = try FileManager.default.contentsOfDirectory(
+            atPath: temporaryDirectory.path
+        )
+        XCTAssertFalse(temporaryItems.contains { $0.hasPrefix("freshbrew-pw-") })
     }
 
-    func testRemoveFilesDeletesCredentialArtifacts() throws {
-        let context = try AdminAuthorizationContext.create(
-            password: "private-value",
-            directory: temporaryDirectory
+    func testBundledContextRejectsMissingOrNonExecutableHelper() throws {
+        let appBundleURL = temporaryDirectory.appendingPathComponent(
+            "FreshBrew.app",
+            isDirectory: true
         )
+        XCTAssertNil(AdminAuthorizationContext.bundled(appBundleURL: appBundleURL))
+    }
 
-        context.removeFiles()
+    func testConfirmedAskpassResponseWritesOnlyPasswordAndNewline() {
+        let response = AskpassResponse.confirmed(password: "private-value")
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: context.passwordFileURL.path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: context.askpassScriptURL.path))
+        XCTAssertEqual(response.exitCode, 0)
+        XCTAssertEqual(String(data: response.standardOutput, encoding: .utf8), "private-value\n")
+    }
+
+    func testCancelledAndEmptyAskpassResponsesWriteNothing() {
+        XCTAssertEqual(AskpassResponse.cancelled.exitCode, 1)
+        XCTAssertTrue(AskpassResponse.cancelled.standardOutput.isEmpty)
+        XCTAssertEqual(AskpassResponse.confirmed(password: ""), .cancelled)
     }
 }

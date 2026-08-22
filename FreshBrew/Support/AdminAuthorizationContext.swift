@@ -1,52 +1,25 @@
 import Foundation
 
-struct AdminAuthorizationContext: Sendable {
-    let passwordFileURL: URL
-    let askpassScriptURL: URL
+struct AdminAuthorizationContext: Equatable, Sendable {
+    static let helperName = "FreshBrewAskpass"
+
+    let askpassExecutableURL: URL
 
     var environment: [String: String] {
-        [
-            "SUDO_ASKPASS": askpassScriptURL.path,
-            "SUDO_ASKPASS_REQUIRE": "force"
-        ]
+        ["SUDO_ASKPASS": askpassExecutableURL.path]
     }
 
-    static func create(
-        password: String,
-        directory: URL = FileManager.default.temporaryDirectory,
+    static func bundled(
+        appBundleURL: URL = Bundle.main.bundleURL,
         fileManager: FileManager = .default
-    ) throws -> AdminAuthorizationContext {
-        let identifier = UUID().uuidString.lowercased()
-        let passwordFileURL = directory.appendingPathComponent("freshbrew-pw-\(identifier).txt")
-        let askpassScriptURL = directory.appendingPathComponent("freshbrew-askpass-\(identifier).sh")
-
-        guard fileManager.createFile(
-            atPath: passwordFileURL.path,
-            contents: Data(password.utf8),
-            attributes: [.posixPermissions: 0o600]
-        ) else {
-            throw CocoaError(.fileWriteUnknown)
+    ) -> AdminAuthorizationContext? {
+        let helperURL = appBundleURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Helpers", isDirectory: true)
+            .appendingPathComponent(helperName)
+        guard fileManager.isExecutableFile(atPath: helperURL.path) else {
+            return nil
         }
-
-        let escapedPasswordPath = passwordFileURL.path.replacingOccurrences(of: "'", with: "'\\''")
-        let script = "#!/bin/sh\n/bin/cat '\(escapedPasswordPath)'\n"
-        guard fileManager.createFile(
-            atPath: askpassScriptURL.path,
-            contents: Data(script.utf8),
-            attributes: [.posixPermissions: 0o700]
-        ) else {
-            try? fileManager.removeItem(at: passwordFileURL)
-            throw CocoaError(.fileWriteUnknown)
-        }
-
-        return AdminAuthorizationContext(
-            passwordFileURL: passwordFileURL,
-            askpassScriptURL: askpassScriptURL
-        )
-    }
-
-    func removeFiles(fileManager: FileManager = .default) {
-        try? fileManager.removeItem(at: passwordFileURL)
-        try? fileManager.removeItem(at: askpassScriptURL)
+        return AdminAuthorizationContext(askpassExecutableURL: helperURL)
     }
 }

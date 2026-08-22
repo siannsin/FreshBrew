@@ -40,7 +40,6 @@
 		A1000000000000000000001F /* MenuBarModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000002A /* MenuBarModelTests.swift */; };
 		A10000000000000000000020 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000002B /* NotificationService.swift */; };
 		A10000000000000000000021 /* LaunchAtLoginService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000002C /* LaunchAtLoginService.swift */; };
-		A10000000000000000000022 /* AdminAuthorizationPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000002D /* AdminAuthorizationPrompt.swift */; };
 		A10000000000000000000023 /* UpdateActionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000002E /* UpdateActionCoordinator.swift */; };
 		A10000000000000000000024 /* NotificationActionRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000002F /* NotificationActionRouter.swift */; };
 		A10000000000000000000025 /* SessionUnlockMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000030 /* SessionUnlockMonitor.swift */; };
@@ -60,6 +59,10 @@
 		A60000000000000000000002 /* ApplicationUpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B60000000000000000000002 /* ApplicationUpdateService.swift */; };
 		A60000000000000000000003 /* ApplicationUpdateCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B60000000000000000000003 /* ApplicationUpdateCoordinator.swift */; };
 		A60000000000000000000004 /* ApplicationUpdateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B60000000000000000000004 /* ApplicationUpdateTests.swift */; };
+		A70000000000000000000001 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000001 /* main.swift */; };
+		A70000000000000000000002 /* AskpassResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000002 /* AskpassResponse.swift */; };
+		A70000000000000000000003 /* AskpassResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000002 /* AskpassResponse.swift */; };
+		A70000000000000000000004 /* FreshBrewAskpass in Embed Helpers */ = {isa = PBXBuildFile; fileRef = B70000000000000000000003 /* FreshBrewAskpass */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -70,7 +73,28 @@
 			remoteGlobalIDString = E10000000000000000000001;
 			remoteInfo = FreshBrew;
 		};
+		J70000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F10000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E70000000000000000000001;
+			remoteInfo = FreshBrewAskpass;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		D70000000000000000000003 /* Embed Helpers */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/Helpers;
+			dstSubfolderSpec = 1;
+			files = (
+				A70000000000000000000004 /* FreshBrewAskpass in Embed Helpers */,
+			);
+			name = "Embed Helpers";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		B10000000000000000000001 /* FreshBrewApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreshBrewApp.swift; sourceTree = "<group>"; };
@@ -110,7 +134,6 @@
 		B1000000000000000000002A /* MenuBarModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarModelTests.swift; sourceTree = "<group>"; };
 		B1000000000000000000002B /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		B1000000000000000000002C /* LaunchAtLoginService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLoginService.swift; sourceTree = "<group>"; };
-		B1000000000000000000002D /* AdminAuthorizationPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminAuthorizationPrompt.swift; sourceTree = "<group>"; };
 		B1000000000000000000002E /* UpdateActionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateActionCoordinator.swift; sourceTree = "<group>"; };
 		B1000000000000000000002F /* NotificationActionRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationActionRouter.swift; sourceTree = "<group>"; };
 		B10000000000000000000030 /* SessionUnlockMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionUnlockMonitor.swift; sourceTree = "<group>"; };
@@ -130,9 +153,19 @@
 		B60000000000000000000002 /* ApplicationUpdateService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationUpdateService.swift; sourceTree = "<group>"; };
 		B60000000000000000000003 /* ApplicationUpdateCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationUpdateCoordinator.swift; sourceTree = "<group>"; };
 		B60000000000000000000004 /* ApplicationUpdateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationUpdateTests.swift; sourceTree = "<group>"; };
+		B70000000000000000000001 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		B70000000000000000000002 /* AskpassResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskpassResponse.swift; sourceTree = "<group>"; };
+		B70000000000000000000003 /* FreshBrewAskpass */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = FreshBrewAskpass; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		D70000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D10000000000000000000002 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -154,6 +187,7 @@
 			isa = PBXGroup;
 			children = (
 				C10000000000000000000002 /* FreshBrew */,
+				C70000000000000000000001 /* FreshBrewAskpass */,
 				C10000000000000000000006 /* FreshBrewTests */,
 				C10000000000000000000005 /* Products */,
 			);
@@ -201,6 +235,7 @@
 			isa = PBXGroup;
 			children = (
 				B10000000000000000000010 /* FreshBrew.app */,
+				B70000000000000000000003 /* FreshBrewAskpass */,
 				B10000000000000000000011 /* FreshBrewTests.xctest */,
 			);
 			name = Products;
@@ -275,7 +310,6 @@
 			isa = PBXGroup;
 			children = (
 				B10000000000000000000019 /* AdminAuthorizationContext.swift */,
-				B1000000000000000000002D /* AdminAuthorizationPrompt.swift */,
 				B60000000000000000000003 /* ApplicationUpdateCoordinator.swift */,
 				B1000000000000000000001A /* CaskRecoveryStore.swift */,
 				B10000000000000000000031 /* SingleInstanceGuard.swift */,
@@ -309,6 +343,15 @@
 			path = About;
 			sourceTree = "<group>";
 		};
+		C70000000000000000000001 /* FreshBrewAskpass */ = {
+			isa = PBXGroup;
+			children = (
+				B70000000000000000000002 /* AskpassResponse.swift */,
+				B70000000000000000000001 /* main.swift */,
+			);
+			path = FreshBrewAskpass;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -319,10 +362,12 @@
 				D10000000000000000000001 /* Sources */,
 				D10000000000000000000002 /* Frameworks */,
 				D10000000000000000000003 /* Resources */,
+				D70000000000000000000003 /* Embed Helpers */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				I70000000000000000000001 /* PBXTargetDependency */,
 			);
 			name = FreshBrew;
 			productName = FreshBrew;
@@ -347,6 +392,22 @@
 			productReference = B10000000000000000000011 /* FreshBrewTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		E70000000000000000000001 /* FreshBrewAskpass */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = H70000000000000000000001 /* Build configuration list for PBXNativeTarget "FreshBrewAskpass" */;
+			buildPhases = (
+				D70000000000000000000001 /* Sources */,
+				D70000000000000000000002 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FreshBrewAskpass;
+			productName = FreshBrewAskpass;
+			productReference = B70000000000000000000003 /* FreshBrewAskpass */;
+			productType = "com.apple.product-type.tool";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -363,6 +424,9 @@
 					E10000000000000000000002 = {
 						CreatedOnToolsVersion = 26.6;
 						TestTargetID = E10000000000000000000001;
+					};
+					E70000000000000000000001 = {
+						CreatedOnToolsVersion = 26.6;
 					};
 				};
 			};
@@ -381,6 +445,7 @@
 			targets = (
 				E10000000000000000000001 /* FreshBrew */,
 				E10000000000000000000002 /* FreshBrewTests */,
+				E70000000000000000000001 /* FreshBrewAskpass */,
 			);
 		};
 /* End PBXProject section */
@@ -404,6 +469,15 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		D70000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A70000000000000000000001 /* main.swift in Sources */,
+				A70000000000000000000002 /* AskpassResponse.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D10000000000000000000001 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -440,7 +514,6 @@
 				A10000000000000000000025 /* SessionUnlockMonitor.swift in Sources */,
 				A10000000000000000000026 /* SingleInstanceGuard.swift in Sources */,
 				A10000000000000000000029 /* SkippedPackagesView.swift in Sources */,
-				A10000000000000000000022 /* AdminAuthorizationPrompt.swift in Sources */,
 				A10000000000000000000023 /* UpdateActionCoordinator.swift in Sources */,
 				A10000000000000000000009 /* UpdateProgress.swift in Sources */,
 				A10000000000000000000008 /* UpdateResult.swift in Sources */,
@@ -453,6 +526,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A70000000000000000000003 /* AskpassResponse.swift in Sources */,
 				A60000000000000000000004 /* ApplicationUpdateTests.swift in Sources */,
 				A1000000000000000000002D /* AppWorkflowTests.swift in Sources */,
 				A10000000000000000000012 /* AdminAuthorizationContextTests.swift in Sources */,
@@ -473,6 +547,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		I70000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E70000000000000000000001 /* FreshBrewAskpass */;
+			targetProxy = J70000000000000000000001 /* PBXContainerItemProxy */;
+		};
 		I10000000000000000000001 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = E10000000000000000000001 /* FreshBrew */;
@@ -481,6 +560,31 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		G70000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 65UN9AC738;
+				ENABLE_HARDENED_RUNTIME = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = net.siann.freshbrew.askpass;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6;
+			};
+			name = Debug;
+		};
+		G70000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = net.siann.freshbrew.askpass;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6;
+			};
+			name = Release;
+		};
 		G10000000000000000000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -604,6 +708,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		H70000000000000000000001 /* Build configuration list for PBXNativeTarget "FreshBrewAskpass" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				G70000000000000000000001 /* Debug */,
+				G70000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		H10000000000000000000001 /* Build configuration list for PBXProject "FreshBrew" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
