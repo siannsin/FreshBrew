@@ -74,28 +74,24 @@ private struct HistoryPackageSection: View {
                     .foregroundStyle(.secondary)
 
                 ForEach(packages) { package in
-                    Button {
-                        openPackageHomepage(
-                            package.name,
-                            package.kind,
-                            package.homepageURL
-                        )
-                    } label: {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(package.name)
-                                .lineLimit(1)
-                                .layoutPriority(1)
-                            Spacer(minLength: 16)
-                            Text(HomebrewVersionDisplay.compactTransition(for: package))
-                                .monospacedDigit()
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .foregroundStyle(.secondary)
-                                .help(HomebrewVersionDisplay.fullTransition(for: package))
+                    HStack(alignment: .firstTextBaseline) {
+                        PackageHomepageButton(packageName: package.name) {
+                            openPackageHomepage(
+                                package.name,
+                                package.kind,
+                                package.homepageURL
+                            )
                         }
-                        .contentShape(Rectangle())
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                        Spacer(minLength: 16)
+                        Text(HomebrewVersionDisplay.compactTransition(for: package))
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(.secondary)
+                            .help(HomebrewVersionDisplay.fullTransition(for: package))
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }

@@ -63,6 +63,7 @@
 		A70000000000000000000002 /* AskpassResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000002 /* AskpassResponse.swift */; };
 		A70000000000000000000003 /* AskpassResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000002 /* AskpassResponse.swift */; };
 		A70000000000000000000004 /* FreshBrewAskpass in Embed Helpers */ = {isa = PBXBuildFile; fileRef = B70000000000000000000003 /* FreshBrewAskpass */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		A80000000000000000000001 /* PackageHomepageButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000001 /* PackageHomepageButton.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -156,6 +157,7 @@
 		B70000000000000000000001 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		B70000000000000000000002 /* AskpassResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskpassResponse.swift; sourceTree = "<group>"; };
 		B70000000000000000000003 /* FreshBrewAskpass */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = FreshBrewAskpass; sourceTree = BUILT_PRODUCTS_DIR; };
+		B80000000000000000000001 /* PackageHomepageButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PackageHomepageButton.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -268,6 +270,7 @@
 				C1000000000000000000000D /* About */,
 				C1000000000000000000000B /* History */,
 				C10000000000000000000004 /* MenuBar */,
+				B80000000000000000000001 /* PackageHomepageButton.swift */,
 				C1000000000000000000000C /* SkippedPackages */,
 			);
 			path = Features;
@@ -507,6 +510,7 @@
 				A10000000000000000000018 /* HomebrewServicing.swift in Sources */,
 				A10000000000000000000021 /* LaunchAtLoginService.swift in Sources */,
 				A50000000000000000000001 /* PackageHomepageService.swift in Sources */,
+				A80000000000000000000001 /* PackageHomepageButton.swift in Sources */,
 				A1000000000000000000001C /* MenuBarModel.swift in Sources */,
 				A10000000000000000000004 /* MenuBarController.swift in Sources */,
 				A10000000000000000000024 /* NotificationActionRouter.swift in Sources */,

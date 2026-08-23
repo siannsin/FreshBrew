@@ -15,7 +15,9 @@ struct SkippedPackagesView: View {
             } else {
                 List(model.rememberedSkippedPackageIDs.sorted(), id: \.self) { packageID in
                     HStack {
-                        Button(Self.displayName(for: packageID)) {
+                        PackageHomepageButton(
+                            packageName: Self.displayName(for: packageID)
+                        ) {
                             guard let package = Self.packageIdentity(from: packageID) else {
                                 return
                             }
@@ -25,7 +27,6 @@ struct SkippedPackagesView: View {
                                 model.cachedPackageHomepageURL(for: packageID)
                             )
                         }
-                        .buttonStyle(.plain)
                         Spacer()
                         Button("Stop Skipping") {
                             model.forgetSkippedPackage(id: packageID)
