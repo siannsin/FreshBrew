@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/siannsin/FreshBrew/releases/latest">Download latest release</a>
+  <a href="#installation">Installation</a>
   · <a href="CHANGELOG.md">Changelog</a>
   · <a href="https://github.com/siannsin/FreshBrew/issues">Report an issue</a>
 </p>
@@ -114,9 +114,21 @@ FreshBrew keeps routine Homebrew maintenance close at hand without becoming a fu
 
 ## Installation
 
-1. Download `FreshBrew-<version>-universal.dmg` from the [latest GitHub release](https://github.com/siannsin/FreshBrew/releases/latest).
-2. Open the DMG and drag **FreshBrew** into **Applications**.
-3. Open FreshBrew from the Applications folder.
+Install with Homebrew:
+
+```bash
+brew install --cask siannsin/tap/freshbrew
+```
+
+Upgrade later with:
+
+```bash
+brew upgrade --cask freshbrew
+```
+
+Alternatively, download `FreshBrew-<version>-universal.dmg` from the
+[latest GitHub release](https://github.com/siannsin/FreshBrew/releases/latest),
+open it, and drag **FreshBrew** into **Applications**.
 
 FreshBrew releases are currently ad-hoc signed and are not Apple-notarized. macOS may block the first launch because the developer cannot be verified. After attempting to open FreshBrew:
 

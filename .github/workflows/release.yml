@@ -12,6 +12,9 @@ jobs:
   release:
     name: Build and publish
     runs-on: macos-15
+    outputs:
+      version: ${{ steps.release_metadata.outputs.version }}
+      sha256: ${{ steps.release_metadata.outputs.sha256 }}
 
     steps:
       - name: Check out release tag
@@ -28,6 +31,28 @@ jobs:
 
       - name: Build DMG
         run: ./script/build_dmg.sh "$GITHUB_REF_NAME"
+
+      - name: Read release metadata
+        id: release_metadata
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          CHECKSUM_FILE="dist/FreshBrew-$VERSION-universal.dmg.sha256"
+          SHA256="$(awk '{print $1}' "$CHECKSUM_FILE")"
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release version: $VERSION" >&2
+            exit 1
+          fi
+
+          if [[ ! "$SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Invalid DMG SHA-256." >&2
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub release
         env:
@@ -65,3 +90,28 @@ jobs:
             --verify-tag \
             --title "$RELEASE_TAG" \
             --notes-file "$NOTES_FILE"
+
+  update-homebrew-tap:
+    name: Update Homebrew tap
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Dispatch cask update
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ needs.release.outputs.version }}
+          SHA256: ${{ needs.release.outputs.sha256 }}
+        run: |
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "HOMEBREW_TAP_TOKEN is not configured." >&2
+            exit 1
+          fi
+
+          gh api \
+            --method POST \
+            repos/siannsin/homebrew-tap/dispatches \
+            -f event_type=freshbrew_release_published \
+            -f "client_payload[version]=$VERSION" \
+            -f "client_payload[sha256]=$SHA256"
