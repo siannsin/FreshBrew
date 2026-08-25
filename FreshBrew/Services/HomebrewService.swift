@@ -259,6 +259,40 @@ actor HomebrewService {
         greedy: Bool,
         onProgress: (@Sendable (UpdateProgress) -> Void)? = nil
     ) async throws -> UpdateResult {
+        try await update(
+            packages: packages,
+            greedy: greedy,
+            keepsFreshBrewRunning: false,
+            onProgress: onProgress
+        )
+    }
+
+    func updateFreshBrew(
+        package: HomebrewPackage,
+        greedy: Bool,
+        onProgress: (@Sendable (UpdateProgress) -> Void)? = nil
+    ) async throws -> UpdateResult {
+        guard package.isFreshBrewCask else {
+            throw HomebrewError.commandFailed(HomebrewCommandFailure(
+                operation: "update FreshBrew",
+                exitCode: -1,
+                output: "FreshBrew self-update requires cask:freshbrew."
+            ))
+        }
+        return try await update(
+            packages: [package],
+            greedy: greedy,
+            keepsFreshBrewRunning: true,
+            onProgress: onProgress
+        )
+    }
+
+    private func update(
+        packages: [HomebrewPackage],
+        greedy: Bool,
+        keepsFreshBrewRunning: Bool,
+        onProgress: (@Sendable (UpdateProgress) -> Void)?
+    ) async throws -> UpdateResult {
         try ensureExecutableIsAvailable()
 
         let candidates = Self.deduplicated(packages)
@@ -291,7 +325,11 @@ actor HomebrewService {
             let operation = "upgrade \(kind.rawValue)s"
             do {
                 let result = try await run(
-                    arguments: Self.upgradeArguments(for: group, greedy: greedy),
+                    arguments: Self.upgradeArguments(
+                        for: group,
+                        greedy: greedy,
+                        keepsFreshBrewRunning: keepsFreshBrewRunning
+                    ),
                     environment: environment,
                     operation: operation,
                     timeoutPolicy: Self.packageTimeoutPolicy,
@@ -332,8 +370,13 @@ actor HomebrewService {
 
             let operation = "force reinstall \(package.name)"
             do {
+                var reinstallArguments = ["reinstall", "--cask", "--force"]
+                if keepsFreshBrewRunning, package.isFreshBrewCask {
+                    reinstallArguments.append("--no-quit")
+                }
+                reinstallArguments.append(package.name)
                 let reinstallResult = try await run(
-                    arguments: ["reinstall", "--cask", "--force", package.name],
+                    arguments: reinstallArguments,
                     environment: environment,
                     operation: operation,
                     timeoutPolicy: Self.packageTimeoutPolicy,
@@ -508,12 +551,18 @@ actor HomebrewService {
 
     nonisolated static func upgradeArguments(
         for packages: [HomebrewPackage],
-        greedy: Bool
+        greedy: Bool,
+        keepsFreshBrewRunning: Bool = false
     ) -> [String] {
         guard let kind = packages.first?.kind else { return [] }
         var arguments = ["upgrade", kind == .cask ? "--cask" : "--formula"]
         if greedy, kind == .cask {
             arguments.append("--greedy")
+        }
+        if keepsFreshBrewRunning,
+           packages.count == 1,
+           packages[0].isFreshBrewCask {
+            arguments.append("--no-quit")
         }
         arguments.append(contentsOf: packages.map(\.name))
         return arguments

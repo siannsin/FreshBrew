@@ -64,6 +64,7 @@
 		A70000000000000000000003 /* AskpassResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000002 /* AskpassResponse.swift */; };
 		A70000000000000000000004 /* FreshBrewAskpass in Embed Helpers */ = {isa = PBXBuildFile; fileRef = B70000000000000000000003 /* FreshBrewAskpass */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		A80000000000000000000001 /* PackageHomepageButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000001 /* PackageHomepageButton.swift */; };
+		A90000000000000000000001 /* ApplicationRelaunchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B90000000000000000000001 /* ApplicationRelaunchService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -158,6 +159,7 @@
 		B70000000000000000000002 /* AskpassResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskpassResponse.swift; sourceTree = "<group>"; };
 		B70000000000000000000003 /* FreshBrewAskpass */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = FreshBrewAskpass; sourceTree = BUILT_PRODUCTS_DIR; };
 		B80000000000000000000001 /* PackageHomepageButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PackageHomepageButton.swift; sourceTree = "<group>"; };
+		B90000000000000000000001 /* ApplicationRelaunchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationRelaunchService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -294,6 +296,7 @@
 		C10000000000000000000009 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				B90000000000000000000001 /* ApplicationRelaunchService.swift */,
 				B60000000000000000000002 /* ApplicationUpdateService.swift */,
 				B10000000000000000000016 /* CommandRunner.swift */,
 				B10000000000000000000024 /* FreshBrewPreferences.swift */,
@@ -485,6 +488,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A90000000000000000000001 /* ApplicationRelaunchService.swift in Sources */,
 				A60000000000000000000001 /* ApplicationRelease.swift in Sources */,
 				A60000000000000000000002 /* ApplicationUpdateService.swift in Sources */,
 				A60000000000000000000003 /* ApplicationUpdateCoordinator.swift in Sources */,

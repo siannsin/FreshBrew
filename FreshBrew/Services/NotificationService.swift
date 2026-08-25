@@ -18,7 +18,8 @@ protocol NotificationServing: Sendable {
         hadFailures: Bool,
         newlyAvailableCount: Int,
         cleanupOutcome: UpdateCleanupOutcome?,
-        verificationUnavailable: Bool
+        verificationUnavailable: Bool,
+        restartRequired: Bool
     ) async
 }
 
@@ -34,6 +35,8 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
     static let updateAllActionIdentifier = "net.siann.freshbrew.update-all"
     static let applicationUpdateCategoryIdentifier = "net.siann.freshbrew.application-update"
     static let viewReleaseActionIdentifier = "net.siann.freshbrew.view-release"
+    static let restartCategoryIdentifier = "net.siann.freshbrew.restart-required"
+    static let restartActionIdentifier = "net.siann.freshbrew.restart"
     static let releasePageURLUserInfoKey = "releasePageURL"
 
     private let center: UNUserNotificationCenter
@@ -91,9 +94,13 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
         hadFailures: Bool,
         newlyAvailableCount: Int,
         cleanupOutcome: UpdateCleanupOutcome?,
-        verificationUnavailable: Bool
+        verificationUnavailable: Bool,
+        restartRequired: Bool
     ) async {
         guard updatedCount > 0 || hadFailures else { return }
+        if restartRequired {
+            registerCategories()
+        }
         let request = UNNotificationRequest(
             identifier: "net.siann.freshbrew.update-result-\(UUID().uuidString)",
             content: Self.updateResultContent(
@@ -102,7 +109,8 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
                 hadFailures: hadFailures,
                 newlyAvailableCount: newlyAvailableCount,
                 cleanupOutcome: cleanupOutcome,
-                verificationUnavailable: verificationUnavailable
+                verificationUnavailable: verificationUnavailable,
+                restartRequired: restartRequired
             ),
             trigger: nil
         )
@@ -180,7 +188,8 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
         hadFailures: Bool,
         newlyAvailableCount: Int,
         cleanupOutcome: UpdateCleanupOutcome?,
-        verificationUnavailable: Bool = false
+        verificationUnavailable: Bool = false,
+        restartRequired: Bool = false
     ) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
         var details: [String] = []
@@ -219,6 +228,10 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
         case nil:
             break
         }
+        if restartRequired {
+            details.append("Restart FreshBrew to finish")
+            content.categoryIdentifier = restartCategoryIdentifier
+        }
         content.body = details.joined(separator: " · ")
         content.sound = .default
         return content
@@ -256,7 +269,20 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
             actions: [viewReleaseAction],
             intentIdentifiers: []
         )
-        center.setNotificationCategories([category, applicationUpdateCategory])
+        let restartAction = UNNotificationAction(
+            identifier: Self.restartActionIdentifier,
+            title: "Restart FreshBrew"
+        )
+        let restartCategory = UNNotificationCategory(
+            identifier: Self.restartCategoryIdentifier,
+            actions: [restartAction],
+            intentIdentifiers: []
+        )
+        center.setNotificationCategories([
+            category,
+            applicationUpdateCategory,
+            restartCategory
+        ])
     }
 }
 
@@ -272,7 +298,8 @@ actor NoopNotificationService: NotificationServing {
         hadFailures: Bool,
         newlyAvailableCount: Int,
         cleanupOutcome: UpdateCleanupOutcome?,
-        verificationUnavailable: Bool
+        verificationUnavailable: Bool,
+        restartRequired: Bool
     ) async {}
 }
 

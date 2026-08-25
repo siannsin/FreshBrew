@@ -23,6 +23,7 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var packageHomepageErrorMessage: String?
     @Published private(set) var sessionSkippedPackageIDs = Set<String>()
     @Published private(set) var rememberedSkippedPackageIDs: Set<String>
+    @Published private(set) var restartRequired = false
 
     @Published var greedyModeEnabled: Bool {
         didSet {
@@ -94,6 +95,7 @@ final class MenuBarModel: ObservableObject {
     private var pendingUpdateKnownPackageIDs: Set<String>?
     private var pendingCompletedPackages: [UpdatedPackage] = []
     private var pendingVerificationUnavailable = false
+    private var pendingRestartRequired = false
 
     init(
         homebrewService: any HomebrewServicing = HomebrewService(),
@@ -213,6 +215,11 @@ final class MenuBarModel: ObservableObject {
 
     func reportPackageHomepageOpened() {
         packageHomepageErrorMessage = nil
+    }
+
+    func reportRestartFailure(_ message: String) {
+        lastErrorMessage = message
+        statusMessage = "Restart failed"
     }
 
     func cachedPackageHomepageURL(for packageID: String) -> URL? {
@@ -350,56 +357,38 @@ final class MenuBarModel: ObservableObject {
         }
 
         do {
-            let result = try await homebrewService.update(
-                packages: packages,
-                greedy: greedyModeEnabled,
-                onProgress: { [weak self] progress in
-                    Task { @MainActor in
-                        self?.progress = progress
-                    }
+            let freshBrewPackage = packages.first(where: \.isFreshBrewCask)
+            let otherPackages = packages.filter { !$0.isFreshBrewCask }
+            var phaseResults: [UpdateResult] = []
+
+            if !otherPackages.isEmpty {
+                let result = try await runUpdatePhase(packages: otherPackages)
+                phaseResults.append(result)
+                await applyUpdateResult(result)
+
+                // FreshBrew must remain the final phase. If the earlier phase
+                // fails or cannot be verified, leave FreshBrew untouched.
+                if result.hasFailures {
+                    applyUpdateFailureStatus(result)
+                    await finalizePendingUpdateWorkflow(hadFailures: true)
+                    return Self.combinedUpdateResult(phaseResults)
                 }
-            )
-            if result.verification.failure == nil {
-                availablePackages = attachHomepageURLs(to: result.remainingPackages)
-                pendingVerificationUnavailable = false
-            } else {
-                pendingVerificationUnavailable = true
-            }
-            mergePendingCompletedPackages(
-                attachHomepageURLs(to: result.completedPackages)
-            )
-            if let verificationFailure = result.verification.failure {
-                statusMessage = "Verification failed"
-                lastErrorMessage = "FreshBrew could not verify the remaining updates."
-                try? await errorLogStore.record(
-                    operation: verificationFailure.operation,
-                    output: verificationFailure.output,
-                    timestamp: result.timestamp
-                )
             }
 
-            if !result.hasFailures {
-                await finalizePendingUpdateWorkflow(hadFailures: false)
-            } else {
-                if result.verification.failure == nil {
-                    let failureCount = result.failures.count
-                    let didTimeOut = result.failures.contains { $0.kind == .timeout }
-                    statusMessage = didTimeOut ? "Update timed out" : "Update failed"
-                    lastErrorMessage = didTimeOut
-                        ? "A package update exceeded its time limit."
-                        : "\(failureCount) update operation\(failureCount == 1 ? "" : "s") failed"
-                }
-                for failure in result.failures {
-                    try? await errorLogStore.record(
-                        operation: failure.operation,
-                        output: failure.output,
-                        timestamp: result.timestamp
-                    )
-                }
-                await finalizePendingUpdateWorkflow(hadFailures: true)
+            if let freshBrewPackage {
+                let result = try await runFreshBrewUpdatePhase(freshBrewPackage)
+                phaseResults.append(result)
+                await applyUpdateResult(result)
             }
 
-            return result
+            guard let combinedResult = Self.combinedUpdateResult(phaseResults) else {
+                return nil
+            }
+            if combinedResult.hasFailures {
+                applyUpdateFailureStatus(combinedResult)
+            }
+            await finalizePendingUpdateWorkflow(hadFailures: combinedResult.hasFailures)
+            return combinedResult
         } catch {
             await handleFailure(
                 error,
@@ -419,6 +408,100 @@ final class MenuBarModel: ObservableObject {
         pendingUpdateKnownPackageIDs = nil
         pendingCompletedPackages = []
         pendingVerificationUnavailable = false
+        pendingRestartRequired = false
+    }
+
+    private func runUpdatePhase(
+        packages: [HomebrewPackage]
+    ) async throws -> UpdateResult {
+        try await homebrewService.update(
+            packages: packages,
+            greedy: greedyModeEnabled,
+            onProgress: progressHandler
+        )
+    }
+
+    private func runFreshBrewUpdatePhase(
+        _ package: HomebrewPackage
+    ) async throws -> UpdateResult {
+        try await homebrewService.updateFreshBrew(
+            package: package,
+            greedy: greedyModeEnabled,
+            onProgress: progressHandler
+        )
+    }
+
+    private var progressHandler: @Sendable (UpdateProgress) -> Void {
+        { [weak self] progress in
+            Task { @MainActor in
+                self?.progress = progress
+            }
+        }
+    }
+
+    private func applyUpdateResult(_ result: UpdateResult) async {
+        if result.verification.failure == nil {
+            availablePackages = attachHomepageURLs(to: result.remainingPackages)
+        } else {
+            pendingVerificationUnavailable = true
+        }
+
+        let completedPackages = attachHomepageURLs(to: result.completedPackages)
+        mergePendingCompletedPackages(completedPackages)
+        if completedPackages.contains(where: { $0.id == HomebrewPackage.freshBrewCaskID }) {
+            pendingRestartRequired = true
+            restartRequired = true
+        }
+
+        if let verificationFailure = result.verification.failure {
+            try? await errorLogStore.record(
+                operation: verificationFailure.operation,
+                output: verificationFailure.output,
+                timestamp: result.timestamp
+            )
+        }
+        for failure in result.failures {
+            try? await errorLogStore.record(
+                operation: failure.operation,
+                output: failure.output,
+                timestamp: result.timestamp
+            )
+        }
+    }
+
+    private func applyUpdateFailureStatus(_ result: UpdateResult) {
+        if result.verification.failure != nil {
+            statusMessage = "Verification failed"
+            lastErrorMessage = "FreshBrew could not verify the remaining updates."
+            return
+        }
+
+        let failureCount = result.failures.count
+        let didTimeOut = result.failures.contains { $0.kind == .timeout }
+        statusMessage = didTimeOut ? "Update timed out" : "Update failed"
+        lastErrorMessage = didTimeOut
+            ? "A package update exceeded its time limit."
+            : "\(failureCount) update operation\(failureCount == 1 ? "" : "s") failed"
+    }
+
+    private static func combinedUpdateResult(
+        _ results: [UpdateResult]
+    ) -> UpdateResult? {
+        guard let finalResult = results.last else { return nil }
+        var completedPackages: [UpdatedPackage] = []
+        var completedIDs = Set<String>()
+        for package in results.flatMap(\.completedPackages) {
+            if completedIDs.insert(package.id).inserted {
+                completedPackages.append(package)
+            }
+        }
+        return UpdateResult(
+            completedPackages: completedPackages,
+            remainingPackages: finalResult.remainingPackages,
+            failures: results.flatMap(\.failures),
+            timestamp: finalResult.timestamp,
+            verification: finalResult.verification
+        )
     }
 
     private func mergePendingCompletedPackages(_ packages: [UpdatedPackage]) {
@@ -487,6 +570,7 @@ final class MenuBarModel: ObservableObject {
         let completedPackages = pendingCompletedPackages
         let knownPackageIDs = pendingUpdateKnownPackageIDs ?? []
         let verificationUnavailable = pendingVerificationUnavailable
+        let restartRequired = pendingRestartRequired
         let newlyAvailableCount = verificationUnavailable ? 0 : visiblePackages.filter {
             !knownPackageIDs.contains($0.id)
         }.count
@@ -530,7 +614,8 @@ final class MenuBarModel: ObservableObject {
             hadFailures: hadFailures,
             newlyAvailableCount: newlyAvailableCount,
             cleanupOutcome: cleanupOutcome,
-            verificationUnavailable: verificationUnavailable
+            verificationUnavailable: verificationUnavailable,
+            restartRequired: restartRequired
         )
         resetPendingUpdateWorkflow()
     }

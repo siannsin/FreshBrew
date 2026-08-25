@@ -7,6 +7,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private let updateCoordinator: UpdateActionCoordinator
     private let windowPresenter: AppWindowPresenter
     private let packageHomepageService: any PackageHomepageOpening
+    private let restartApplication: @MainActor () -> Void
     private let statusItem: NSStatusItem
     private let menu = NSMenu()
     private var statusIconAnimator: StatusIconAnimator?
@@ -18,12 +19,14 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         model: MenuBarModel,
         updateCoordinator: UpdateActionCoordinator,
         windowPresenter: AppWindowPresenter,
-        packageHomepageService: (any PackageHomepageOpening)? = nil
+        packageHomepageService: (any PackageHomepageOpening)? = nil,
+        restartApplication: @escaping @MainActor () -> Void = {}
     ) {
         self.model = model
         self.updateCoordinator = updateCoordinator
         self.windowPresenter = windowPresenter
         self.packageHomepageService = packageHomepageService ?? PackageHomepageService()
+        self.restartApplication = restartApplication
         statusItem = NSStatusBar.system.statusItem(withLength: 20)
         super.init()
 
@@ -90,6 +93,14 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.removeAllItems()
 
         addInformationalItem(headerTitle)
+
+        if model.restartRequired {
+            addActionItem(
+                "Restart FreshBrew",
+                action: #selector(restartFreshBrew),
+                isEnabled: !model.isRunning
+            )
+        }
 
         if !model.visiblePackages.isEmpty {
             addAvailableUpdatesMenu()
@@ -370,6 +381,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     @objc private func updatePackage(_ sender: NSMenuItem) {
         guard let package = sender.representedObject as? HomebrewPackage else { return }
         Task { await updateCoordinator.update(package) }
+    }
+
+    @objc private func restartFreshBrew() {
+        restartApplication()
     }
 
     @objc private func skipPackageOnce(_ sender: NSMenuItem) {

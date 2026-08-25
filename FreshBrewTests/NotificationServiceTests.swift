@@ -199,6 +199,26 @@ final class NotificationServiceTests: XCTestCase {
         )
     }
 
+    func testUpdateResultContentIncludesRestartActionAfterSelfUpdate() {
+        let content = NotificationService.updateResultContent(
+            updatedCount: 4,
+            remainingUpdateCount: 0,
+            hadFailures: false,
+            newlyAvailableCount: 0,
+            cleanupOutcome: .completed(freedSpace: "1.3GB"),
+            restartRequired: true
+        )
+
+        XCTAssertEqual(
+            content.body,
+            "4 packages updated · 1.3GB freed · Restart FreshBrew to finish"
+        )
+        XCTAssertEqual(
+            content.categoryIdentifier,
+            NotificationService.restartCategoryIdentifier
+        )
+    }
+
     func testCleanupResultExtractsHomebrewFreedSpace() {
         let result = CleanupResult(
             isDeepCleanup: false,

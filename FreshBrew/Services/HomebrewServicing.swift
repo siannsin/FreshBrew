@@ -16,6 +16,12 @@ protocol HomebrewServicing: Sendable {
         onProgress: (@Sendable (UpdateProgress) -> Void)?
     ) async throws -> UpdateResult
 
+    func updateFreshBrew(
+        package: HomebrewPackage,
+        greedy: Bool,
+        onProgress: (@Sendable (UpdateProgress) -> Void)?
+    ) async throws -> UpdateResult
+
     func cleanup(deep: Bool) async throws -> CleanupResult
 }
 

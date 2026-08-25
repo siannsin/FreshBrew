@@ -134,12 +134,14 @@ final class AppWorkflowTests: XCTestCase {
     func testNotificationActionRouterHandlesOnlyUpdateAllAction() async {
         var calls = 0
         var releaseURLs: [String] = []
+        var restartCalls = 0
         let router = NotificationActionRouter(
             updateAll: { calls += 1 },
             viewRelease: { url in
                 releaseURLs.append(url)
                 return true
-            }
+            },
+            restartApplication: { restartCalls += 1 }
         )
 
         let ignored = await router.handle(actionIdentifier: "unrelated")
@@ -150,15 +152,52 @@ final class AppWorkflowTests: XCTestCase {
             actionIdentifier: NotificationService.viewReleaseActionIdentifier,
             releasePageURL: "https://github.com/siannsin/FreshBrew/releases/tag/v0.2.0"
         )
+        let restartHandled = await router.handle(
+            actionIdentifier: NotificationService.restartActionIdentifier
+        )
 
         XCTAssertFalse(ignored)
         XCTAssertTrue(handled)
         XCTAssertTrue(releaseHandled)
+        XCTAssertTrue(restartHandled)
         XCTAssertEqual(calls, 1)
+        XCTAssertEqual(restartCalls, 1)
         XCTAssertEqual(
             releaseURLs,
             ["https://github.com/siannsin/FreshBrew/releases/tag/v0.2.0"]
         )
+    }
+
+    func testRelaunchServiceLaunchesCurrentBundleBeforeTerminating() throws {
+        let bundleURL = URL(fileURLWithPath: "/Applications/FreshBrew.app")
+        var launchedURL: URL?
+        var didTerminate = false
+        let service = ApplicationRelaunchService(
+            bundleURL: bundleURL,
+            bundleValidator: { $0 == bundleURL },
+            relaunchLauncher: { launchedURL = $0 },
+            terminator: { didTerminate = true }
+        )
+
+        try service.relaunch()
+
+        XCTAssertEqual(launchedURL, bundleURL)
+        XCTAssertTrue(didTerminate)
+    }
+
+    func testRelaunchServiceKeepsAppRunningWhenPreparationFails() {
+        var didLaunch = false
+        var didTerminate = false
+        let service = ApplicationRelaunchService(
+            bundleURL: URL(fileURLWithPath: "/tmp/FreshBrew"),
+            bundleValidator: { _ in false },
+            relaunchLauncher: { _ in didLaunch = true },
+            terminator: { didTerminate = true }
+        )
+
+        XCTAssertThrowsError(try service.relaunch())
+        XCTAssertFalse(didLaunch)
+        XCTAssertFalse(didTerminate)
     }
 
     func testSingleInstanceGuardIgnoresCurrentProcess() {

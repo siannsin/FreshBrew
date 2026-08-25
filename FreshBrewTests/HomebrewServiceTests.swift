@@ -547,6 +547,52 @@ final class HomebrewServiceTests: XCTestCase {
         }
     }
 
+    func testFreshBrewSelfUpdateUsesNoQuitAndGreedyOnlyForExactCask() async throws {
+        let freshBrew = package(named: "freshbrew", kind: .cask)
+        let runner = StubCommandRunner(results: [
+            CommandResult(exitCode: 0, standardOutput: "updated", standardError: ""),
+            CommandResult(
+                exitCode: 0,
+                standardOutput: emptyOutdatedJSON,
+                standardError: ""
+            )
+        ])
+        let service = makeService(runner: runner)
+
+        _ = try await service.updateFreshBrew(
+            package: freshBrew,
+            greedy: true
+        )
+
+        let requests = await runner.recordedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [
+            ["upgrade", "--cask", "--greedy", "--no-quit", "freshbrew"],
+            ["outdated", "--json=v2", "--greedy"]
+        ])
+    }
+
+    func testNormalUpdateNeverAddsNoQuitForAnotherPackage() async throws {
+        let cask = package(named: "spotify", kind: .cask)
+        let runner = StubCommandRunner(results: [
+            CommandResult(exitCode: 0, standardOutput: "updated", standardError: ""),
+            CommandResult(
+                exitCode: 0,
+                standardOutput: emptyOutdatedJSON,
+                standardError: ""
+            )
+        ])
+        let service = makeService(runner: runner)
+
+        _ = try await service.update(packages: [cask], greedy: true)
+
+        let requests = await runner.recordedRequests()
+        XCTAssertEqual(
+            requests.first?.arguments,
+            ["upgrade", "--cask", "--greedy", "spotify"]
+        )
+        XCTAssertFalse(requests.first?.arguments.contains("--no-quit") == true)
+    }
+
     private func makeService(
         runner: StubCommandRunner,
         networkIsAvailable: Bool = true,

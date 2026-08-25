@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let notificationRouter: NotificationActionRouter
     private let windowPresenter: AppWindowPresenter
     private let packageHomepageService: PackageHomepageService
+    private let relaunchService: ApplicationRelaunchService
     private var menuBarController: MenuBarController?
 
     override init() {
@@ -30,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             notificationService: notificationService
         )
         let updateCoordinator = UpdateActionCoordinator(model: model)
+        let relaunchService = ApplicationRelaunchService()
         let applicationUpdateCoordinator = ApplicationUpdateCoordinator(
             checker: GitHubApplicationUpdateService(
                 installedVersion: AppIdentity.marketingVersion
@@ -42,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.updateCoordinator = updateCoordinator
         self.applicationUpdateCoordinator = applicationUpdateCoordinator
         self.packageHomepageService = packageHomepageService
+        self.relaunchService = relaunchService
         windowPresenter = AppWindowPresenter(
             model: model,
             applicationUpdateCoordinator: applicationUpdateCoordinator,
@@ -54,6 +57,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             },
             viewRelease: { releasePageURL in
                 applicationUpdateCoordinator.openReleasePage(from: releasePageURL)
+            },
+            restartApplication: {
+                do {
+                    try relaunchService.relaunch()
+                } catch {
+                    model.reportRestartFailure(
+                        (error as? LocalizedError)?.errorDescription
+                            ?? error.localizedDescription
+                    )
+                }
             }
         )
         super.init()
@@ -70,7 +83,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             model: model,
             updateCoordinator: updateCoordinator,
             windowPresenter: windowPresenter,
-            packageHomepageService: packageHomepageService
+            packageHomepageService: packageHomepageService,
+            restartApplication: { [weak self] in
+                self?.restartApplication()
+            }
         )
         Task { await notificationService.requestAuthorization() }
         model.startAutomaticChecks()
@@ -130,5 +146,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             currentProcessIdentifier: ProcessInfo.processInfo.processIdentifier,
             runningProcessIdentifiers: identifiers
         )
+    }
+
+    private func restartApplication() {
+        do {
+            try relaunchService.relaunch()
+        } catch {
+            model.reportRestartFailure(
+                (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+            )
+        }
     }
 }

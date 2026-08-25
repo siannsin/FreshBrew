@@ -6,6 +6,8 @@ enum HomebrewPackageKind: String, Codable, CaseIterable, Sendable {
 }
 
 struct HomebrewPackage: Identifiable, Codable, Hashable, Sendable {
+    static let freshBrewCaskID = "cask:freshbrew"
+
     let name: String
     let installedVersion: String
     let availableVersion: String
@@ -28,6 +30,10 @@ struct HomebrewPackage: Identifiable, Codable, Hashable, Sendable {
 
     var id: String {
         "\(kind.rawValue):\(name)"
+    }
+
+    var isFreshBrewCask: Bool {
+        id == Self.freshBrewCaskID
     }
 }
 

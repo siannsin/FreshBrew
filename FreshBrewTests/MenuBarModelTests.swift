@@ -1130,6 +1130,285 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertEqual(intervals.first, 3_600)
     }
 
+    func testUpdateAllUpdatesFreshBrewLastAndFinalizesOneLogicalResult() async {
+        let formula = makePackage(named: "ripgrep", kind: .formula)
+        let freshBrew = makePackage(named: "freshbrew", kind: .cask)
+        let service = FakeHomebrewService(
+            checkResponses: [.packages([formula, freshBrew])],
+            updateResponses: [
+                .success(UpdateResult(
+                    completedPackages: [makeUpdatedPackage(from: formula)],
+                    remainingPackages: [freshBrew],
+                    failures: [],
+                    timestamp: Date(timeIntervalSince1970: 100)
+                )),
+                .success(UpdateResult(
+                    completedPackages: [makeUpdatedPackage(from: freshBrew)],
+                    remainingPackages: [],
+                    failures: [],
+                    timestamp: Date(timeIntervalSince1970: 200)
+                ))
+            ],
+            cleanupResponses: [.success(CleanupResult(
+                isDeepCleanup: false,
+                output: "This operation has freed approximately 42MB of disk space.",
+                completedAt: Date(timeIntervalSince1970: 300)
+            ))]
+        )
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+        model.autoCleanupEnabled = true
+
+        _ = await model.checkUpdates()
+        let result = await model.updateAll()
+        let updateBatches = await service.recordedUpdatePackageIDBatches()
+        let selfUpdateIDs = await service.recordedSelfUpdatePackageIDs()
+        let cleanupValues = await service.recordedCleanupDeepValues()
+        let completions = await notifications.completions()
+
+        XCTAssertEqual(updateBatches, [[formula.id], [freshBrew.id]])
+        XCTAssertEqual(selfUpdateIDs, [freshBrew.id])
+        XCTAssertEqual(result?.completedPackages.map(\.id), [formula.id, freshBrew.id])
+        XCTAssertEqual(model.latestUpdate?.packages.map(\.id), [formula.id, freshBrew.id])
+        XCTAssertEqual(model.updateHistory.count, 1)
+        XCTAssertTrue(model.restartRequired)
+        XCTAssertEqual(cleanupValues, [false])
+        XCTAssertEqual(
+            completions,
+            [UpdateCompletion(
+                updatedCount: 2,
+                remainingUpdateCount: 0,
+                hadFailures: false,
+                newlyAvailableCount: 0,
+                cleanupOutcome: .completed(freedSpace: "42MB"),
+                restartRequired: true
+            )]
+        )
+    }
+
+    func testUpdateAllDoesNotUpdateFreshBrewAfterEarlierFailure() async {
+        let formula = makePackage(named: "ripgrep", kind: .formula)
+        let freshBrew = makePackage(named: "freshbrew", kind: .cask)
+        let failure = HomebrewCommandFailure(
+            operation: "upgrade formulae",
+            exitCode: 1,
+            output: "formula failed"
+        )
+        let service = FakeHomebrewService(
+            checkResponses: [.packages([formula, freshBrew])],
+            updateResult: UpdateResult(
+                completedPackages: [],
+                remainingPackages: [formula, freshBrew],
+                failures: [failure],
+                timestamp: Date(timeIntervalSince1970: 100)
+            )
+        )
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        _ = await model.checkUpdates()
+        _ = await model.updateAll()
+        let updateBatches = await service.recordedUpdatePackageIDBatches()
+        let selfUpdateIDs = await service.recordedSelfUpdatePackageIDs()
+
+        XCTAssertEqual(updateBatches, [[formula.id]])
+        XCTAssertTrue(selfUpdateIDs.isEmpty)
+        XCTAssertFalse(model.restartRequired)
+        XCTAssertEqual(model.availablePackages.map(\.id), [formula.id, freshBrew.id])
+    }
+
+    func testUpdateAllDoesNotUpdateFreshBrewWhenEarlierVerificationIsUnavailable() async {
+        let formula = makePackage(named: "ripgrep", kind: .formula)
+        let freshBrew = makePackage(named: "freshbrew", kind: .cask)
+        let verificationFailure = HomebrewCommandFailure(
+            operation: "verify updates",
+            exitCode: -1,
+            output: "verification unavailable",
+            kind: .timeout
+        )
+        let service = FakeHomebrewService(
+            checkResponses: [.packages([formula, freshBrew])],
+            updateResult: UpdateResult(
+                completedPackages: [makeUpdatedPackage(from: formula)],
+                remainingPackages: [freshBrew],
+                failures: [],
+                timestamp: Date(timeIntervalSince1970: 100),
+                verification: .unavailable(verificationFailure)
+            )
+        )
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        _ = await model.checkUpdates()
+        _ = await model.updateAll()
+        let updateBatches = await service.recordedUpdatePackageIDBatches()
+        let selfUpdateIDs = await service.recordedSelfUpdatePackageIDs()
+
+        XCTAssertEqual(updateBatches, [[formula.id]])
+        XCTAssertTrue(selfUpdateIDs.isEmpty)
+        XCTAssertEqual(model.latestUpdate?.packages.map(\.id), [formula.id])
+        XCTAssertFalse(model.restartRequired)
+    }
+
+    func testFreshBrewOnlyUpdateUsesSelfUpdatePath() async {
+        let freshBrew = makePackage(named: "freshbrew", kind: .cask)
+        let service = FakeHomebrewService(
+            updateResult: UpdateResult(
+                completedPackages: [makeUpdatedPackage(from: freshBrew)],
+                remainingPackages: [],
+                failures: [],
+                timestamp: Date(timeIntervalSince1970: 100)
+            )
+        )
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        _ = await model.update(package: freshBrew)
+        let selfUpdateIDs = await service.recordedSelfUpdatePackageIDs()
+
+        XCTAssertEqual(selfUpdateIDs, [freshBrew.id])
+        XCTAssertTrue(model.restartRequired)
+    }
+
+    func testVerifiedFreshBrewCommandStillRequiresRestartWhenVerificationIsUnavailable() async {
+        let freshBrew = makePackage(named: "freshbrew", kind: .cask)
+        let verificationFailure = HomebrewCommandFailure(
+            operation: "verify updates",
+            exitCode: -1,
+            output: "verification unavailable",
+            kind: .timeout
+        )
+        let service = FakeHomebrewService(
+            updateResult: UpdateResult(
+                completedPackages: [makeUpdatedPackage(from: freshBrew)],
+                remainingPackages: [],
+                failures: [],
+                timestamp: Date(timeIntervalSince1970: 100),
+                verification: .unavailable(verificationFailure)
+            )
+        )
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+        model.autoCleanupEnabled = true
+
+        _ = await model.update(package: freshBrew)
+        let cleanupValues = await service.recordedCleanupDeepValues()
+        let completions = await notifications.completions()
+
+        XCTAssertTrue(model.restartRequired)
+        XCTAssertTrue(cleanupValues.isEmpty)
+        XCTAssertEqual(
+            completions,
+            [UpdateCompletion(
+                updatedCount: 1,
+                remainingUpdateCount: 0,
+                hadFailures: true,
+                newlyAvailableCount: 0,
+                cleanupOutcome: nil,
+                verificationUnavailable: true,
+                restartRequired: true
+            )]
+        )
+    }
+
+    func testFreshBrewFailureKeepsEarlierSuccessInOneHistoryAndNotification() async {
+        let formula = makePackage(named: "ripgrep", kind: .formula)
+        let freshBrew = makePackage(named: "freshbrew", kind: .cask)
+        let service = FakeHomebrewService(
+            checkResponses: [.packages([formula, freshBrew])],
+            updateResponses: [
+                .success(UpdateResult(
+                    completedPackages: [makeUpdatedPackage(from: formula)],
+                    remainingPackages: [freshBrew],
+                    failures: [],
+                    timestamp: Date(timeIntervalSince1970: 100)
+                )),
+                .success(UpdateResult(
+                    completedPackages: [],
+                    remainingPackages: [freshBrew],
+                    failures: [HomebrewCommandFailure(
+                        operation: "upgrade casks",
+                        exitCode: 1,
+                        output: "FreshBrew update failed"
+                    )],
+                    timestamp: Date(timeIntervalSince1970: 200)
+                ))
+            ]
+        )
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+        model.autoCleanupEnabled = true
+
+        _ = await model.checkUpdates()
+        _ = await model.updateAll()
+        let completions = await notifications.completions()
+        let cleanupValues = await service.recordedCleanupDeepValues()
+
+        XCTAssertEqual(model.updateHistory.count, 1)
+        XCTAssertEqual(model.latestUpdate?.packages.map(\.id), [formula.id])
+        XCTAssertEqual(model.availablePackages.map(\.id), [freshBrew.id])
+        XCTAssertFalse(model.restartRequired)
+        XCTAssertTrue(cleanupValues.isEmpty)
+        XCTAssertEqual(
+            completions,
+            [UpdateCompletion(
+                updatedCount: 1,
+                remainingUpdateCount: 1,
+                hadFailures: true,
+                newlyAvailableCount: 0,
+                cleanupOutcome: nil
+            )]
+        )
+    }
+
+    func testSkippedFreshBrewIsNotIncludedInSelfUpdatePhase() async {
+        let formula = makePackage(named: "ripgrep", kind: .formula)
+        let freshBrew = makePackage(named: "freshbrew", kind: .cask)
+        let service = FakeHomebrewService(
+            checkResponses: [.packages([formula, freshBrew])],
+            updateResult: UpdateResult(
+                completedPackages: [makeUpdatedPackage(from: formula)],
+                remainingPackages: [freshBrew],
+                failures: [],
+                timestamp: Date(timeIntervalSince1970: 100)
+            )
+        )
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        _ = await model.checkUpdates()
+        model.skip(freshBrew, remember: false)
+        _ = await model.updateAll()
+        let updateBatches = await service.recordedUpdatePackageIDBatches()
+        let selfUpdateIDs = await service.recordedSelfUpdatePackageIDs()
+
+        XCTAssertEqual(updateBatches, [[formula.id]])
+        XCTAssertTrue(selfUpdateIDs.isEmpty)
+        XCTAssertFalse(model.restartRequired)
+    }
+
     private func makeModel(
         service: FakeHomebrewService,
         dependencies: ModelDependencies,
@@ -1243,6 +1522,7 @@ private actor FakeHomebrewService: HomebrewServicing {
     private var checkGreedyValues: [Bool] = []
     private var updateGreedyValues: [Bool] = []
     private var updatePackageIDBatches: [[String]] = []
+    private var selfUpdatePackageIDs: [String] = []
     private var cleanupResponses: [Result<CleanupResult, HomebrewError>]
     private var cleanupDeepValues: [Bool] = []
     private var homepageURLs: [String: URL] = [:]
@@ -1306,6 +1586,25 @@ private actor FakeHomebrewService: HomebrewServicing {
         )
     }
 
+    func updateFreshBrew(
+        package: HomebrewPackage,
+        greedy: Bool,
+        onProgress: (@Sendable (UpdateProgress) -> Void)?
+    ) async throws -> UpdateResult {
+        updateGreedyValues.append(greedy)
+        updatePackageIDBatches.append([package.id])
+        selfUpdatePackageIDs.append(package.id)
+        if !updateResponses.isEmpty {
+            return try updateResponses.removeFirst().get()
+        }
+        return UpdateResult(
+            completedPackages: [],
+            remainingPackages: [package],
+            failures: [],
+            timestamp: Date()
+        )
+    }
+
     func cleanup(deep: Bool) async throws -> CleanupResult {
         cleanupDeepValues.append(deep)
         if !cleanupResponses.isEmpty {
@@ -1326,6 +1625,10 @@ private actor FakeHomebrewService: HomebrewServicing {
         updatePackageIDBatches
     }
 
+    func recordedSelfUpdatePackageIDs() -> [String] {
+        selfUpdatePackageIDs
+    }
+
     func checkCount() -> Int {
         checkGreedyValues.count
     }
@@ -1342,6 +1645,7 @@ private struct UpdateCompletion: Equatable, Sendable {
     let newlyAvailableCount: Int
     let cleanupOutcome: UpdateCleanupOutcome?
     let verificationUnavailable: Bool
+    let restartRequired: Bool
 
     init(
         updatedCount: Int,
@@ -1349,7 +1653,8 @@ private struct UpdateCompletion: Equatable, Sendable {
         hadFailures: Bool,
         newlyAvailableCount: Int,
         cleanupOutcome: UpdateCleanupOutcome?,
-        verificationUnavailable: Bool = false
+        verificationUnavailable: Bool = false,
+        restartRequired: Bool = false
     ) {
         self.updatedCount = updatedCount
         self.remainingUpdateCount = remainingUpdateCount
@@ -1357,6 +1662,7 @@ private struct UpdateCompletion: Equatable, Sendable {
         self.newlyAvailableCount = newlyAvailableCount
         self.cleanupOutcome = cleanupOutcome
         self.verificationUnavailable = verificationUnavailable
+        self.restartRequired = restartRequired
     }
 }
 
@@ -1392,7 +1698,8 @@ private actor FakeNotificationService: NotificationServing {
         hadFailures: Bool,
         newlyAvailableCount: Int,
         cleanupOutcome: UpdateCleanupOutcome?,
-        verificationUnavailable: Bool
+        verificationUnavailable: Bool,
+        restartRequired: Bool
     ) async {
         guard updatedCount > 0 || hadFailures else { return }
         completionValues.append(UpdateCompletion(
@@ -1401,7 +1708,8 @@ private actor FakeNotificationService: NotificationServing {
             hadFailures: hadFailures,
             newlyAvailableCount: newlyAvailableCount,
             cleanupOutcome: cleanupOutcome,
-            verificationUnavailable: verificationUnavailable
+            verificationUnavailable: verificationUnavailable,
+            restartRequired: restartRequired
         ))
     }
 
