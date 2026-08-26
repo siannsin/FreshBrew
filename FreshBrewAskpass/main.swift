@@ -10,7 +10,12 @@ private func requestPassword() -> AskpassResponse {
 
     let alert = NSAlert()
     alert.messageText = "FreshBrew needs admin access"
-    alert.informativeText = "Enter your login password to update."
+    let packageName = AskpassPackageContextSession.currentPackageName(
+        environment: ProcessInfo.processInfo.environment
+    )
+    alert.informativeText = AskpassPromptContent.informativeText(
+        packageName: packageName
+    )
     alert.alertStyle = .informational
     let contentsURL = URL(fileURLWithPath: CommandLine.arguments[0])
         .standardizedFileURL

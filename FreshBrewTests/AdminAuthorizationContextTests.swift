@@ -59,6 +59,102 @@ final class AdminAuthorizationContextTests: XCTestCase {
         XCTAssertNil(AdminAuthorizationContext.bundled(appBundleURL: appBundleURL))
     }
 
+    func testEnvironmentIncludesSessionContextOnlyWhenProvided() {
+        let helperURL = URL(fileURLWithPath: "/tmp/FreshBrewAskpass")
+        let contextURL = URL(fileURLWithPath: "/tmp/package-context")
+        let context = AdminAuthorizationContext(askpassExecutableURL: helperURL)
+
+        XCTAssertEqual(
+            context.environment(packageContextFileURL: contextURL),
+            [
+                "SUDO_ASKPASS": helperURL.path,
+                AskpassPackageContextSession.environmentKey: contextURL.path
+            ]
+        )
+    }
+
+    func testPackageContextUsesRestrictivePermissionsAndClearsAfterSession() throws {
+        let session = try AskpassPackageContextSession(
+            selectedPackageIDs: ["cask:omnissa-horizon-client"],
+            parentDirectoryURL: temporaryDirectory
+        )
+        let directoryURL = session.contextFileURL.deletingLastPathComponent()
+
+        XCTAssertTrue(session.setCurrentPackage(id: "cask:omnissa-horizon-client"))
+        XCTAssertEqual(
+            AskpassPackageContextSession.currentPackageName(
+                environment: [
+                    AskpassPackageContextSession.environmentKey: session.contextFileURL.path
+                ]
+            ),
+            "omnissa-horizon-client"
+        )
+
+        let fileAttributes = try FileManager.default.attributesOfItem(
+            atPath: session.contextFileURL.path
+        )
+        let directoryAttributes = try FileManager.default.attributesOfItem(
+            atPath: directoryURL.path
+        )
+        XCTAssertEqual(fileAttributes[.posixPermissions] as? NSNumber, 0o600)
+        XCTAssertEqual(directoryAttributes[.posixPermissions] as? NSNumber, 0o700)
+
+        session.clear()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directoryURL.path))
+    }
+
+    func testPackageContextRejectsUnknownPackageAndFallsBackToGenericPrompt() throws {
+        let session = try AskpassPackageContextSession(
+            selectedPackageIDs: ["formula:ripgrep", "cask:chatgpt"],
+            parentDirectoryURL: temporaryDirectory
+        )
+
+        XCTAssertTrue(session.setCurrentPackage(id: "formula:ripgrep"))
+        XCTAssertFalse(session.setCurrentPackage(id: "cask:unknown-package"))
+        XCTAssertNil(AskpassPackageContextSession.currentPackageName(
+            environment: [
+                AskpassPackageContextSession.environmentKey: session.contextFileURL.path
+            ]
+        ))
+    }
+
+    func testPackageContextCanChangeAndRepeatedReadsKeepCurrentPackage() throws {
+        let session = try AskpassPackageContextSession(
+            selectedPackageIDs: ["formula:ripgrep", "cask:chatgpt"],
+            parentDirectoryURL: temporaryDirectory
+        )
+        let environment = [
+            AskpassPackageContextSession.environmentKey: session.contextFileURL.path
+        ]
+
+        XCTAssertTrue(session.setCurrentPackage(id: "formula:ripgrep"))
+        XCTAssertEqual(
+            AskpassPackageContextSession.currentPackageName(environment: environment),
+            "ripgrep"
+        )
+        XCTAssertEqual(
+            AskpassPackageContextSession.currentPackageName(environment: environment),
+            "ripgrep"
+        )
+
+        XCTAssertTrue(session.setCurrentPackage(id: "cask:chatgpt"))
+        XCTAssertEqual(
+            AskpassPackageContextSession.currentPackageName(environment: environment),
+            "chatgpt"
+        )
+    }
+
+    func testPromptContentShowsKnownPackageOrGenericFallback() {
+        XCTAssertEqual(
+            AskpassPromptContent.informativeText(packageName: "omnissa-horizon-client"),
+            "Enter your login password to continue updating:\n\nomnissa-horizon-client"
+        )
+        XCTAssertEqual(
+            AskpassPromptContent.informativeText(packageName: nil),
+            "Enter your login password to update."
+        )
+    }
+
     func testConfirmedAskpassResponseWritesOnlyPasswordAndNewline() {
         let response = AskpassResponse.confirmed(password: "private-value")
 

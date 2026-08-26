@@ -65,6 +65,8 @@
 		A70000000000000000000004 /* FreshBrewAskpass in Embed Helpers */ = {isa = PBXBuildFile; fileRef = B70000000000000000000003 /* FreshBrewAskpass */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		A80000000000000000000001 /* PackageHomepageButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000001 /* PackageHomepageButton.swift */; };
 		A90000000000000000000001 /* ApplicationRelaunchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B90000000000000000000001 /* ApplicationRelaunchService.swift */; };
+		AA0000000000000000000001 /* AskpassPackageContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA0000000000000000000001 /* AskpassPackageContext.swift */; };
+		AA0000000000000000000002 /* AskpassPackageContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA0000000000000000000001 /* AskpassPackageContext.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -128,6 +130,7 @@
 		B10000000000000000000022 /* UpdateHistoryEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateHistoryEntry.swift; sourceTree = "<group>"; };
 		B10000000000000000000023 /* HomebrewServicing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomebrewServicing.swift; sourceTree = "<group>"; };
 		B10000000000000000000024 /* FreshBrewPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreshBrewPreferences.swift; sourceTree = "<group>"; };
+		BA0000000000000000000001 /* AskpassPackageContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskpassPackageContext.swift; sourceTree = "<group>"; };
 		B10000000000000000000025 /* UpdateHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateHistoryStore.swift; sourceTree = "<group>"; };
 		B10000000000000000000026 /* HomebrewErrorLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomebrewErrorLogStore.swift; sourceTree = "<group>"; };
 		B10000000000000000000027 /* MenuBarModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarModel.swift; sourceTree = "<group>"; };
@@ -316,6 +319,7 @@
 			isa = PBXGroup;
 			children = (
 				B10000000000000000000019 /* AdminAuthorizationContext.swift */,
+				BA0000000000000000000001 /* AskpassPackageContext.swift */,
 				B60000000000000000000003 /* ApplicationUpdateCoordinator.swift */,
 				B1000000000000000000001A /* CaskRecoveryStore.swift */,
 				B10000000000000000000031 /* SingleInstanceGuard.swift */,
@@ -479,6 +483,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA0000000000000000000002 /* AskpassPackageContext.swift in Sources */,
 				A70000000000000000000001 /* main.swift in Sources */,
 				A70000000000000000000002 /* AskpassResponse.swift in Sources */,
 			);
@@ -489,6 +494,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A90000000000000000000001 /* ApplicationRelaunchService.swift in Sources */,
+				AA0000000000000000000001 /* AskpassPackageContext.swift in Sources */,
 				A60000000000000000000001 /* ApplicationRelease.swift in Sources */,
 				A60000000000000000000002 /* ApplicationUpdateService.swift in Sources */,
 				A60000000000000000000003 /* ApplicationUpdateCoordinator.swift in Sources */,

@@ -6,7 +6,15 @@ struct AdminAuthorizationContext: Equatable, Sendable {
     let askpassExecutableURL: URL
 
     var environment: [String: String] {
-        ["SUDO_ASKPASS": askpassExecutableURL.path]
+        environment(packageContextFileURL: nil)
+    }
+
+    func environment(packageContextFileURL: URL?) -> [String: String] {
+        var environment = ["SUDO_ASKPASS": askpassExecutableURL.path]
+        if let packageContextFileURL {
+            environment[AskpassPackageContextSession.environmentKey] = packageContextFileURL.path
+        }
+        return environment
     }
 
     static func bundled(

@@ -500,6 +500,97 @@ final class HomebrewServiceTests: XCTestCase {
         XCTAssertFalse(requests.first?.arguments.contains { $0.contains("password") } ?? true)
     }
 
+    func testUpdateSharesValidatedActivePackageWithAskpassAndRemovesContext() async throws {
+        let packages = [
+            package(named: "ripgrep", kind: .formula),
+            package(named: "wget", kind: .formula)
+        ]
+        let helperURL = URL(fileURLWithPath: "/Applications/FreshBrew.app/Contents/Helpers/FreshBrewAskpass")
+        let runner = StubCommandRunner(results: [
+            CommandResult(
+                exitCode: 0,
+                standardOutput: "==> Upgrading wget",
+                standardError: ""
+            ),
+            CommandResult(
+                exitCode: 0,
+                standardOutput: emptyOutdatedJSON,
+                standardError: ""
+            )
+        ])
+        let service = makeService(
+            runner: runner,
+            authorizationContext: AdminAuthorizationContext(
+                askpassExecutableURL: helperURL
+            )
+        )
+
+        _ = try await service.update(packages: packages, greedy: false)
+
+        let requests = await runner.recordedRequests()
+        let observedPackages = await runner.observedAskpassPackageNames()
+        let contextPath = try XCTUnwrap(
+            requests.first?.environment[AskpassPackageContextSession.environmentKey]
+        )
+        XCTAssertEqual(observedPackages.first, "wget")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: contextPath))
+    }
+
+    func testUnknownProgressPackageLeavesAskpassContextGeneric() async throws {
+        let packages = [
+            package(named: "ripgrep", kind: .formula),
+            package(named: "wget", kind: .formula)
+        ]
+        let runner = StubCommandRunner(results: [
+            CommandResult(
+                exitCode: 0,
+                standardOutput: "==> Upgrading unrelated-package",
+                standardError: ""
+            ),
+            CommandResult(
+                exitCode: 0,
+                standardOutput: emptyOutdatedJSON,
+                standardError: ""
+            )
+        ])
+        let service = makeService(
+            runner: runner,
+            authorizationContext: AdminAuthorizationContext(
+                askpassExecutableURL: URL(fileURLWithPath: "/tmp/FreshBrewAskpass")
+            )
+        )
+
+        _ = try await service.update(packages: packages, greedy: false)
+
+        let observedPackages = await runner.observedAskpassPackageNames()
+        XCTAssertNil(observedPackages.first ?? nil)
+    }
+
+    func testUnexpectedUpdateExitRemovesAskpassContext() async throws {
+        let helperURL = URL(fileURLWithPath: "/tmp/FreshBrewAskpass")
+        let runner = StubCommandRunner(results: [])
+        let service = makeService(
+            runner: runner,
+            authorizationContext: AdminAuthorizationContext(
+                askpassExecutableURL: helperURL
+            )
+        )
+
+        do {
+            _ = try await service.update(
+                packages: [package(named: "firefox", kind: .cask)],
+                greedy: false
+            )
+            XCTFail("Expected the missing stub result to fail")
+        } catch {
+            let requests = await runner.recordedRequests()
+            let contextPath = try XCTUnwrap(
+                requests.first?.environment[AskpassPackageContextSession.environmentKey]
+            )
+            XCTAssertFalse(FileManager.default.fileExists(atPath: contextPath))
+        }
+    }
+
     func testCleanupUsesDeepPruneOnlyWhenRequested() async throws {
         let runner = StubCommandRunner(results: [
             CommandResult(exitCode: 0, standardOutput: "clean", standardError: ""),
@@ -639,6 +730,7 @@ private actor StubCommandRunner: CommandRunning {
 
     private var responses: [Response]
     private var requests: [CommandRequest] = []
+    private var askpassPackageNames: [String?] = []
 
     init(results: [CommandResult]) {
         responses = results.map(Response.result)
@@ -657,13 +749,27 @@ private actor StubCommandRunner: CommandRunning {
         switch responses.removeFirst() {
         case let .result(result):
             onOutput?(result.combinedOutput)
+            askpassPackageNames.append(
+                AskpassPackageContextSession.currentPackageName(
+                    environment: request.environment
+                )
+            )
             return result
         case let .timeout(error):
+            askpassPackageNames.append(
+                AskpassPackageContextSession.currentPackageName(
+                    environment: request.environment
+                )
+            )
             throw error
         }
     }
 
     func recordedRequests() -> [CommandRequest] {
         requests
+    }
+
+    func observedAskpassPackageNames() -> [String?] {
+        askpassPackageNames
     }
 }

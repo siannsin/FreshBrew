@@ -306,7 +306,11 @@ actor HomebrewService {
         }
         try await ensureNetworkIsAvailable()
 
-        let environment = authorizationContext?.environment ?? [:]
+        let packageContext = makeAskpassPackageContext(for: candidates)
+        defer { packageContext?.clear() }
+        let environment = authorizationContext?.environment(
+            packageContextFileURL: packageContext?.contextFileURL
+        ) ?? [:]
         var commandFailures: [HomebrewCommandFailure] = []
         var combinedUpgradeOutput = ""
         var evidencedCompletedPackageIDs = Set<String>()
@@ -324,7 +328,7 @@ actor HomebrewService {
 
             let operation = "upgrade \(kind.rawValue)s"
             do {
-                let result = try await run(
+                let result = try await runPackageCommand(
                     arguments: Self.upgradeArguments(
                         for: group,
                         greedy: greedy,
@@ -333,7 +337,10 @@ actor HomebrewService {
                     environment: environment,
                     operation: operation,
                     timeoutPolicy: Self.packageTimeoutPolicy,
-                    onOutput: progressRelay(stage: .upgrading, onProgress: onProgress)
+                    stage: .upgrading,
+                    candidates: group,
+                    packageContext: packageContext,
+                    onProgress: onProgress
                 )
                 combinedUpgradeOutput += "\n" + result.combinedOutput
 
@@ -375,12 +382,15 @@ actor HomebrewService {
                     reinstallArguments.append("--no-quit")
                 }
                 reinstallArguments.append(package.name)
-                let reinstallResult = try await run(
+                let reinstallResult = try await runPackageCommand(
                     arguments: reinstallArguments,
                     environment: environment,
                     operation: operation,
                     timeoutPolicy: Self.packageTimeoutPolicy,
-                    onOutput: progressRelay(stage: .reinstalling, onProgress: onProgress)
+                    stage: .reinstalling,
+                    candidates: [package],
+                    packageContext: packageContext,
+                    onProgress: onProgress
                 )
                 combinedUpgradeOutput += "\n" + reinstallResult.combinedOutput
                 if reinstallResult.exitCode == 0 {
@@ -480,6 +490,11 @@ actor HomebrewService {
 
         try ensureExecutableIsAvailable()
         try await ensureNetworkIsAvailable()
+        let packageContext = makeAskpassPackageContext(for: [package])
+        defer { packageContext?.clear() }
+        let environment = authorizationContext?.environment(
+            packageContextFileURL: packageContext?.contextFileURL
+        ) ?? [:]
         _ = try recoveryStore.removeBackups(
             olderThan: Date().addingTimeInterval(-7 * 24 * 60 * 60)
         )
@@ -492,12 +507,15 @@ actor HomebrewService {
                 packageName: package.name,
                 message: "Recovering \(package.name)"
             ))
-            let result = try await run(
+            let result = try await runPackageCommand(
                 arguments: ["reinstall", "--cask", "--force", package.name],
-                environment: authorizationContext?.environment ?? [:],
+                environment: environment,
                 operation: "recover cask \(package.name)",
                 timeoutPolicy: Self.packageTimeoutPolicy,
-                onOutput: progressRelay(stage: .reinstalling, onProgress: onProgress)
+                stage: .reinstalling,
+                candidates: [package],
+                packageContext: packageContext,
+                onProgress: onProgress
             )
             try requireSuccess(result, operation: "recover cask \(package.name)")
 
@@ -805,6 +823,44 @@ actor HomebrewService {
         }
     }
 
+    private func runPackageCommand(
+        arguments: [String],
+        environment: [String: String],
+        operation: String,
+        timeoutPolicy: CommandTimeoutPolicy,
+        stage: UpdateProgress.Stage,
+        candidates: [HomebrewPackage],
+        packageContext: AskpassPackageContextSession?,
+        onProgress: (@Sendable (UpdateProgress) -> Void)?
+    ) async throws -> CommandResult {
+        packageContext?.setCurrentPackage(
+            id: candidates.count == 1 ? candidates[0].id : nil
+        )
+        defer { packageContext?.setCurrentPackage(id: nil) }
+
+        return try await run(
+            arguments: arguments,
+            environment: environment,
+            operation: operation,
+            timeoutPolicy: timeoutPolicy,
+            onOutput: progressRelay(
+                stage: stage,
+                candidates: candidates,
+                packageContext: packageContext,
+                onProgress: onProgress
+            )
+        )
+    }
+
+    private func makeAskpassPackageContext(
+        for packages: [HomebrewPackage]
+    ) -> AskpassPackageContextSession? {
+        guard authorizationContext != nil else { return nil }
+        return try? AskpassPackageContextSession(
+            selectedPackageIDs: Set(packages.map(\.id))
+        )
+    }
+
     private nonisolated static func timeoutFailure(
         from error: HomebrewError
     ) -> HomebrewCommandFailure? {
@@ -904,15 +960,25 @@ actor HomebrewService {
 
     private nonisolated func progressRelay(
         stage: UpdateProgress.Stage,
+        candidates: [HomebrewPackage],
+        packageContext: AskpassPackageContextSession?,
         onProgress: (@Sendable (UpdateProgress) -> Void)?
     ) -> (@Sendable (String) -> Void)? {
-        guard let onProgress else { return nil }
+        guard onProgress != nil || packageContext != nil else { return nil }
+        let candidateIDsByName = Dictionary(
+            candidates.map { ($0.name, $0.id) },
+            uniquingKeysWith: { first, _ in first }
+        )
         return { chunk in
             let message = chunk.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !message.isEmpty else { return }
-            onProgress(UpdateProgress(
+            let packageName = Self.packageNameFromProgressOutput(message)
+            if let packageName, let packageID = candidateIDsByName[packageName] {
+                packageContext?.setCurrentPackage(id: packageID)
+            }
+            onProgress?(UpdateProgress(
                 stage: stage,
-                packageName: Self.packageNameFromProgressOutput(message),
+                packageName: packageName,
                 message: message
             ))
         }
