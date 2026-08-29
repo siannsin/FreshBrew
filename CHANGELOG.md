@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.0] - August 2026
+
+### Added
+
+- FreshBrew can now be installed and updated through Homebrew.
+- Shows which package needs administrator access in the password prompt.
+
+### Improved
+
+- Safer administrator password handling without temporary password files.
+- Successful packages remain in history when the final update check fails.
+- More reliable formula and cask update detection.
+- Failed checks no longer delay the next automatic check.
+- Clearer package homepage links in Update History and Skipped Packages.
+
 ## [0.2.0] - August 2026
 
 ### Added
@@ -37,5 +52,6 @@
 - Seven-day diagnostic retention for Homebrew failures without storing administrator passwords.
 - Launch-at-login support.
 
+[0.3.0]: https://github.com/siannsin/FreshBrew/releases/tag/v0.3.0
 [0.2.0]: https://github.com/siannsin/FreshBrew/releases/tag/v0.2.0
 [0.1.0]: https://github.com/siannsin/FreshBrew/releases/tag/v0.1.0
