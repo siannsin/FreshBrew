@@ -1,19 +1,24 @@
+import AppKit
 import SwiftUI
 
 struct SkippedPackagesView: View {
     @ObservedObject var model: MenuBarModel
     let openPackageHomepage: (String, HomebrewPackageKind, URL?) -> Void
 
+    private var skippedPackageIDs: [String] {
+        model.rememberedSkippedPackageIDs.sorted()
+    }
+
     var body: some View {
         Group {
-            if model.rememberedSkippedPackageIDs.isEmpty {
+            if skippedPackageIDs.isEmpty {
                 ContentUnavailableView(
-                    "No Skipped Packages",
+                    "No skipped packages",
                     systemImage: "checkmark.circle",
                     description: Text("Packages you always skip will appear here.")
                 )
             } else {
-                List(model.rememberedSkippedPackageIDs.sorted(), id: \.self) { packageID in
+                List(skippedPackageIDs, id: \.self) { packageID in
                     HStack {
                         PackageHomepageButton(
                             packageName: Self.displayName(for: packageID)
@@ -28,8 +33,10 @@ struct SkippedPackagesView: View {
                             )
                         }
                         Spacer()
-                        Button("Stop Skipping") {
-                            model.forgetSkippedPackage(id: packageID)
+                        StopSkippingButton {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                model.forgetSkippedPackage(id: packageID)
+                            }
                         }
                     }
                 }
@@ -57,5 +64,37 @@ struct SkippedPackagesView: View {
             return nil
         }
         return (String(components[1]), kind)
+    }
+}
+
+private struct StopSkippingButton: View {
+    let action: () -> Void
+
+    @FocusState private var isFocused: Bool
+    @State private var isHovering = false
+
+    private var isActive: Bool {
+        isHovering || isFocused
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "circle.slash.fill")
+                .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focused($isFocused)
+        .help("Stop skipping updates")
+        .onHover { isHovering in
+            self.isHovering = isHovering
+            (isHovering ? NSCursor.pointingHand : NSCursor.arrow).set()
+        }
+        .onDisappear {
+            if isHovering {
+                NSCursor.arrow.set()
+            }
+        }
     }
 }

@@ -243,6 +243,39 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertEqual(dependencies.preferences.rememberedSkippedPackageIDs, [package.id])
     }
 
+    func testForgettingRememberedSkipClearsItsSessionSkipAndRestoresPackage() async {
+        let package = makePackage(named: "ripgrep", kind: .formula)
+        let service = FakeHomebrewService(checkResponses: [.packages([package])])
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        _ = await model.checkUpdates()
+        model.skip(package, remember: true)
+        model.forgetSkippedPackage(id: package.id)
+
+        XCTAssertEqual(model.visiblePackages, [package])
+        XCTAssertFalse(model.sessionSkippedPackageIDs.contains(package.id))
+        XCTAssertFalse(model.rememberedSkippedPackageIDs.contains(package.id))
+        XCTAssertTrue(dependencies.preferences.rememberedSkippedPackageIDs.isEmpty)
+    }
+
+    func testForgettingUnknownRememberedSkipPreservesSessionOnlySkip() async {
+        let package = makePackage(named: "ripgrep", kind: .formula)
+        let service = FakeHomebrewService(checkResponses: [.packages([package])])
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        _ = await model.checkUpdates()
+        model.skip(package, remember: false)
+        model.forgetSkippedPackage(id: package.id)
+
+        XCTAssertTrue(model.visiblePackages.isEmpty)
+        XCTAssertTrue(model.sessionSkippedPackageIDs.contains(package.id))
+        XCTAssertTrue(model.rememberedSkippedPackageIDs.isEmpty)
+    }
+
     func testPartialUpdateAddsCompletedPackagesToHistoryAndKeepsFailuresVisible() async {
         let completed = makePackage(named: "completed", kind: .formula)
         let failed = makePackage(named: "failed", kind: .cask)

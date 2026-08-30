@@ -279,7 +279,10 @@ final class MenuBarModel: ObservableObject {
     }
 
     func forgetSkippedPackage(id: String) {
-        rememberedSkippedPackageIDs.remove(id)
+        let wasRemembered = rememberedSkippedPackageIDs.remove(id) != nil
+        if wasRemembered {
+            sessionSkippedPackageIDs.remove(id)
+        }
         preferences.rememberedSkippedPackageIDs = rememberedSkippedPackageIDs
     }
 
