@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct PackageHomepageButton: View {
@@ -13,14 +12,9 @@ struct PackageHomepageButton: View {
                 .underline(isHovering)
         }
         .buttonStyle(.plain)
+        .pointingHandCursor()
         .onHover { isHovering in
             self.isHovering = isHovering
-            (isHovering ? NSCursor.pointingHand : NSCursor.arrow).set()
-        }
-        .onDisappear {
-            if isHovering {
-                NSCursor.arrow.set()
-            }
         }
     }
 }

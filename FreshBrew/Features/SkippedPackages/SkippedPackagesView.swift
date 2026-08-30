@@ -33,7 +33,7 @@ struct SkippedPackagesView: View {
                             )
                         }
                         Spacer()
-                        StopSkippingButton {
+                        PackageSkipButton(isSkipped: true) {
                             withAnimation(.easeInOut(duration: 0.15)) {
                                 model.forgetSkippedPackage(id: packageID)
                             }
@@ -64,37 +64,5 @@ struct SkippedPackagesView: View {
             return nil
         }
         return (String(components[1]), kind)
-    }
-}
-
-private struct StopSkippingButton: View {
-    let action: () -> Void
-
-    @FocusState private var isFocused: Bool
-    @State private var isHovering = false
-
-    private var isActive: Bool {
-        isHovering || isFocused
-    }
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "circle.slash.fill")
-                .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .focused($isFocused)
-        .help("Stop skipping updates")
-        .onHover { isHovering in
-            self.isHovering = isHovering
-            (isHovering ? NSCursor.pointingHand : NSCursor.arrow).set()
-        }
-        .onDisappear {
-            if isHovering {
-                NSCursor.arrow.set()
-            }
-        }
     }
 }

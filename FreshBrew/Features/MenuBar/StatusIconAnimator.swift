@@ -77,7 +77,6 @@ final class StatusIconAnimator {
         button?.image = nil
         animatedImageView.image = symbol(name, weight: weight)
         animatedImageView.isHidden = false
-        button?.layoutSubtreeIfNeeded()
     }
 
     private func symbol(_ name: String, weight: NSFont.Weight) -> NSImage? {

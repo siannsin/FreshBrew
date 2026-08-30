@@ -1,6 +1,8 @@
 import Foundation
 
 protocol HomebrewServicing: Sendable {
+    func installedPackages() async throws -> [InstalledPackage]
+
     func checkOutdated(
         greedy: Bool,
         refreshMetadata: Bool

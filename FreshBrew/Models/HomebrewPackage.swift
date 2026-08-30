@@ -5,6 +5,29 @@ enum HomebrewPackageKind: String, Codable, CaseIterable, Sendable {
     case cask
 }
 
+struct InstalledPackage: Identifiable, Codable, Hashable, Sendable {
+    let name: String
+    let installedVersion: String
+    let kind: HomebrewPackageKind
+    let homepageURL: URL?
+
+    init(
+        name: String,
+        installedVersion: String,
+        kind: HomebrewPackageKind,
+        homepageURL: URL? = nil
+    ) {
+        self.name = name
+        self.installedVersion = installedVersion
+        self.kind = kind
+        self.homepageURL = homepageURL
+    }
+
+    var id: String {
+        "\(kind.rawValue):\(name)"
+    }
+}
+
 struct HomebrewPackage: Identifiable, Codable, Hashable, Sendable {
     static let freshBrewCaskID = "cask:freshbrew"
 

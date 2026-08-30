@@ -4,6 +4,7 @@ import SwiftUI
 @MainActor
 final class AppWindowPresenter {
     private enum WindowID: String {
+        case installedPackages
         case updateHistory
         case skippedPackages
         case about
@@ -22,6 +23,20 @@ final class AppWindowPresenter {
         self.model = model
         self.applicationUpdateCoordinator = applicationUpdateCoordinator
         self.packageHomepageService = packageHomepageService
+    }
+
+    func showInstalledPackages() {
+        showWindow(
+            id: .installedPackages,
+            title: "Installed Packages",
+            contentSize: NSSize(width: 400, height: 320),
+            minimumSize: NSSize(width: 380, height: 300),
+            isResizable: true,
+            content: AnyView(InstalledPackagesView(
+                model: model,
+                openPackageHomepage: openPackageHomepage
+            ))
+        )
     }
 
     func showUpdateHistory() {

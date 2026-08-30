@@ -10,10 +10,19 @@ final class MenuBarModel: ObservableObject {
         case cleaning
     }
 
+    enum InstalledPackagesLoadState: Equatable {
+        case notLoaded
+        case loading
+        case loaded
+        case failed(String)
+    }
+
     static let unlockCheckDelay: TimeInterval = 60
     static let minimumHomebrewCheckInterval: TimeInterval = 14_400
 
     @Published private(set) var availablePackages: [HomebrewPackage] = []
+    @Published private(set) var installedPackages: [InstalledPackage] = []
+    @Published private(set) var installedPackagesLoadState: InstalledPackagesLoadState = .notLoaded
     @Published private(set) var updateHistory: [UpdateHistoryEntry]
     @Published private(set) var activity: Activity = .idle
     @Published private(set) var progress: UpdateProgress?
@@ -133,6 +142,21 @@ final class MenuBarModel: ObservableObject {
         )
         lastSuccessfulHomebrewCheckDate = preferences.lastSuccessfulHomebrewCheckDate
         preferences.launchAtLoginEnabled = launchAtLoginEnabled
+    }
+
+    @discardableResult
+    func loadInstalledPackages() async -> Bool {
+        guard installedPackagesLoadState != .loading else { return false }
+        installedPackagesLoadState = .loading
+
+        do {
+            installedPackages = try await homebrewService.installedPackages()
+            installedPackagesLoadState = .loaded
+            return true
+        } catch {
+            installedPackagesLoadState = .failed(error.localizedDescription)
+            return false
+        }
     }
 
     func checkUpdates(
@@ -270,12 +294,13 @@ final class MenuBarModel: ObservableObject {
     func skip(_ package: HomebrewPackage, remember: Bool) {
         sessionSkippedPackageIDs.insert(package.id)
         if remember {
-            if let homepageURL = package.homepageURL {
-                packageHomepageStore.save([package.id: homepageURL])
-            }
-            rememberedSkippedPackageIDs.insert(package.id)
-            preferences.rememberedSkippedPackageIDs = rememberedSkippedPackageIDs
+            rememberSkippedPackage(id: package.id, homepageURL: package.homepageURL)
         }
+    }
+
+    func rememberSkip(_ package: InstalledPackage) {
+        sessionSkippedPackageIDs.insert(package.id)
+        rememberSkippedPackage(id: package.id, homepageURL: package.homepageURL)
     }
 
     func forgetSkippedPackage(id: String) {
@@ -289,6 +314,14 @@ final class MenuBarModel: ObservableObject {
     func clearRememberedSkippedPackages() {
         rememberedSkippedPackageIDs = []
         preferences.rememberedSkippedPackageIDs = []
+    }
+
+    private func rememberSkippedPackage(id: String, homepageURL: URL?) {
+        if let homepageURL {
+            packageHomepageStore.save([id: homepageURL])
+        }
+        rememberedSkippedPackageIDs.insert(id)
+        preferences.rememberedSkippedPackageIDs = rememberedSkippedPackageIDs
     }
 
     func startAutomaticChecks() {

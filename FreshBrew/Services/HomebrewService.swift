@@ -121,6 +121,35 @@ private struct HomebrewOutdatedResponse: Decodable, Sendable {
     let casks: [Cask]
 }
 
+private struct HomebrewInstalledResponse: Decodable, Sendable {
+    struct Formula: Decodable, Sendable {
+        struct Installation: Decodable, Sendable {
+            let version: String
+        }
+
+        let name: String
+        let homepage: String?
+        let linkedKeg: String?
+        let installed: [Installation]
+
+        private enum CodingKeys: String, CodingKey {
+            case name
+            case homepage
+            case linkedKeg = "linked_keg"
+            case installed
+        }
+    }
+
+    struct Cask: Decodable, Sendable {
+        let token: String
+        let homepage: String?
+        let installed: String?
+    }
+
+    let formulae: [Formula]
+    let casks: [Cask]
+}
+
 private enum HomebrewOutdatedJSONError: LocalizedError {
     case emptyName(HomebrewPackageKind)
     case missingInstalledVersion(HomebrewPackageKind, String)
@@ -134,6 +163,20 @@ private enum HomebrewOutdatedJSONError: LocalizedError {
             "Homebrew returned no installed version for \(kind.rawValue) \(name)."
         case let .emptyCurrentVersion(kind, name):
             "Homebrew returned no current version for \(kind.rawValue) \(name)."
+        }
+    }
+}
+
+private enum HomebrewInstalledJSONError: LocalizedError {
+    case emptyName(HomebrewPackageKind)
+    case missingInstalledVersion(HomebrewPackageKind, String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .emptyName(kind):
+            "Homebrew returned an unnamed installed \(kind.rawValue)."
+        case let .missingInstalledVersion(kind, name):
+            "Homebrew returned no installed version for \(kind.rawValue) \(name)."
         }
     }
 }
@@ -170,6 +213,31 @@ actor HomebrewService {
         self.networkAvailabilityChecker = networkAvailabilityChecker
         self.executableIsAvailable = executableIsAvailable
         self.authorizationContext = authorizationContext ?? AdminAuthorizationContext.bundled()
+    }
+
+    func installedPackages() async throws -> [InstalledPackage] {
+        try ensureExecutableIsAvailable()
+
+        let result = try await run(
+            arguments: ["info", "--json=v2", "--installed"],
+            environment: ["HOMEBREW_NO_AUTO_UPDATE": "1"],
+            operation: "read installed packages",
+            timeoutPolicy: Self.outdatedTimeoutPolicy
+        )
+        try requireSuccess(result, operation: "read installed packages")
+
+        do {
+            return try Self.parseInstalledPackagesJSON(result.standardOutput)
+        } catch {
+            let decodingDetail = "FreshBrew could not decode Homebrew's installed-package JSON: \(error)"
+            throw HomebrewError.commandFailed(HomebrewCommandFailure(
+                operation: "decode installed packages",
+                exitCode: result.exitCode,
+                output: [result.combinedOutput, decodingDetail]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n")
+            ))
+        }
     }
 
     func checkOutdated(
@@ -609,6 +677,67 @@ actor HomebrewService {
             )
         }
         return formulae + casks
+    }
+
+    nonisolated static func parseInstalledPackagesJSON(
+        _ output: String
+    ) throws -> [InstalledPackage] {
+        let response = try JSONDecoder().decode(
+            HomebrewInstalledResponse.self,
+            from: Data(output.utf8)
+        )
+
+        let formulae = try response.formulae.map { formula in
+            let linkedVersion = formula.linkedKeg?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            let fallbackVersion = formula.installed.last?.version
+            return try installedPackage(
+                name: formula.name,
+                installedVersion: linkedVersion?.isEmpty == false
+                    ? linkedVersion
+                    : fallbackVersion,
+                kind: .formula,
+                homepage: formula.homepage
+            )
+        }
+
+        let casks = try response.casks.map { cask in
+            try installedPackage(
+                name: cask.token,
+                installedVersion: cask.installed,
+                kind: .cask,
+                homepage: cask.homepage
+            )
+        }
+
+        return formulae + casks
+    }
+
+    private nonisolated static func installedPackage(
+        name: String,
+        installedVersion: String?,
+        kind: HomebrewPackageKind,
+        homepage: String?
+    ) throws -> InstalledPackage {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            throw HomebrewInstalledJSONError.emptyName(kind)
+        }
+
+        let installedVersion = installedVersion?.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard let installedVersion, !installedVersion.isEmpty else {
+            throw HomebrewInstalledJSONError.missingInstalledVersion(kind, name)
+        }
+
+        return InstalledPackage(
+            name: name,
+            installedVersion: installedVersion,
+            kind: kind,
+            homepageURL: homepage.flatMap(validatedHomepageURL)
+        )
     }
 
     private nonisolated static func outdatedPackage(

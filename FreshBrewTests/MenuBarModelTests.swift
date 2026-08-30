@@ -4,6 +4,102 @@ import XCTest
 
 @MainActor
 final class MenuBarModelTests: XCTestCase {
+    func testLoadingInstalledPackagesStoresInventoryAndLoadedState() async {
+        let inventory = [
+            InstalledPackage(
+                name: "ripgrep",
+                installedVersion: "14.1.1",
+                kind: .formula
+            ),
+            InstalledPackage(
+                name: "chatgpt",
+                installedVersion: "1.2026.231",
+                kind: .cask
+            )
+        ]
+        let service = FakeHomebrewService(
+            installedPackageResponses: [.success(inventory)]
+        )
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        let succeeded = await model.loadInstalledPackages()
+
+        XCTAssertTrue(succeeded)
+        XCTAssertEqual(model.installedPackages, inventory)
+        XCTAssertEqual(model.installedPackagesLoadState, .loaded)
+    }
+
+    func testFailedInstalledPackageRefreshPreservesPreviousInventory() async {
+        let inventory = [
+            InstalledPackage(
+                name: "ripgrep",
+                installedVersion: "14.1.1",
+                kind: .formula
+            )
+        ]
+        let service = FakeHomebrewService(installedPackageResponses: [
+            .success(inventory),
+            .failure(.timedOut(
+                operation: "read installed packages",
+                seconds: 30,
+                output: "metadata stalled"
+            ))
+        ])
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        let initialLoadSucceeded = await model.loadInstalledPackages()
+        let refreshSucceeded = await model.loadInstalledPackages()
+
+        XCTAssertTrue(initialLoadSucceeded)
+        XCTAssertFalse(refreshSucceeded)
+        XCTAssertEqual(model.installedPackages, inventory)
+        XCTAssertEqual(
+            model.installedPackagesLoadState,
+            .failed("Read Installed Packages timed out after 30 seconds.")
+        )
+    }
+
+    func testRememberingInstalledPackageSkipPersistsAndFiltersAvailablePackage() async {
+        let homepageURL = URL(string: "https://formulae.brew.sh/formula/ripgrep")
+        let availablePackage = HomebrewPackage(
+            name: "ripgrep",
+            installedVersion: "14.1.0",
+            availableVersion: "14.1.1",
+            kind: .formula
+        )
+        let installedPackage = InstalledPackage(
+            name: "ripgrep",
+            installedVersion: "14.1.0",
+            kind: .formula,
+            homepageURL: homepageURL
+        )
+        let service = FakeHomebrewService(
+            checkResponses: [.packages([availablePackage])]
+        )
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        _ = await model.checkUpdates()
+        model.rememberSkip(installedPackage)
+
+        XCTAssertTrue(model.visiblePackages.isEmpty)
+        XCTAssertTrue(model.sessionSkippedPackageIDs.contains(installedPackage.id))
+        XCTAssertTrue(model.rememberedSkippedPackageIDs.contains(installedPackage.id))
+        XCTAssertEqual(
+            dependencies.preferences.rememberedSkippedPackageIDs,
+            [installedPackage.id]
+        )
+        XCTAssertEqual(
+            model.cachedPackageHomepageURL(for: installedPackage.id),
+            homepageURL
+        )
+    }
+
     func testPackageHomepageOpenFailureProducesVisibleStatus() {
         let dependencies = makeDependencies()
         defer { dependencies.cleanUp() }
@@ -1551,6 +1647,7 @@ private actor FakeHomebrewService: HomebrewServicing {
     }
 
     private var checkResponses: [CheckResponse]
+    private var installedPackageResponses: [Result<[InstalledPackage], HomebrewError>]
     private var updateResponses: [Result<UpdateResult, HomebrewError>]
     private var checkGreedyValues: [Bool] = []
     private var updateGreedyValues: [Bool] = []
@@ -1563,6 +1660,7 @@ private actor FakeHomebrewService: HomebrewServicing {
 
     init(
         checkResponses: [CheckResponse] = [],
+        installedPackageResponses: [Result<[InstalledPackage], HomebrewError>] = [],
         updateResult: UpdateResult? = nil,
         updateResponses: [Result<UpdateResult, HomebrewError>] = [],
         cleanupResponses: [Result<CleanupResult, HomebrewError>] = [],
@@ -1570,6 +1668,7 @@ private actor FakeHomebrewService: HomebrewServicing {
         onCheck: (@Sendable () -> Void)? = nil
     ) {
         self.checkResponses = checkResponses
+        self.installedPackageResponses = installedPackageResponses
         self.cleanupResponses = cleanupResponses
         self.homepageURLs = homepageURLs
         self.onCheck = onCheck
@@ -1578,6 +1677,11 @@ private actor FakeHomebrewService: HomebrewServicing {
         } else {
             self.updateResponses = updateResponses
         }
+    }
+
+    func installedPackages() async throws -> [InstalledPackage] {
+        guard !installedPackageResponses.isEmpty else { return [] }
+        return try installedPackageResponses.removeFirst().get()
     }
 
     func checkOutdated(

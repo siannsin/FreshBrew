@@ -105,6 +105,168 @@ final class HomebrewServiceTests: XCTestCase {
         XCTAssertEqual(requests.first?.executableURL.path, "/usr/local/bin/brew")
     }
 
+    func testInstalledPackagesUsesOneBoundedLocalMetadataCommand() async throws {
+        let runner = StubCommandRunner(results: [
+            CommandResult(
+                exitCode: 0,
+                standardOutput: """
+                {
+                  "formulae": [{
+                    "name": "ripgrep",
+                    "homepage": "https://github.com/BurntSushi/ripgrep",
+                    "linked_keg": "14.1.1",
+                    "installed": [{"version": "13.0.0"}, {"version": "14.1.1"}]
+                  }],
+                  "casks": [{
+                    "token": "android-studio",
+                    "homepage": "https://developer.android.com/studio",
+                    "installed": "2026.1.3.8,quail3-patch1"
+                  }]
+                }
+                """,
+                standardError: ""
+            )
+        ])
+        let service = makeService(runner: runner)
+
+        let packages = try await service.installedPackages()
+
+        XCTAssertEqual(packages.map(\.id), ["formula:ripgrep", "cask:android-studio"])
+        XCTAssertEqual(packages.map(\.installedVersion), [
+            "14.1.1",
+            "2026.1.3.8,quail3-patch1"
+        ])
+        XCTAssertEqual(
+            packages[0].homepageURL?.absoluteString,
+            "https://github.com/BurntSushi/ripgrep"
+        )
+        XCTAssertEqual(
+            HomebrewVersionDisplay.compact(
+                packages[1].installedVersion,
+                kind: packages[1].kind
+            ),
+            "2026.1.3.8"
+        )
+
+        let requests = await runner.recordedRequests()
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(requests[0].arguments, ["info", "--json=v2", "--installed"])
+        XCTAssertEqual(requests[0].environment["HOMEBREW_NO_AUTO_UPDATE"], "1")
+        XCTAssertEqual(requests[0].timeoutPolicy, HomebrewService.outdatedTimeoutPolicy)
+    }
+
+    func testInstalledFormulaFallsBackToMostRecentInstallationWhenUnlinked() throws {
+        let packages = try HomebrewService.parseInstalledPackagesJSON("""
+        {
+          "formulae": [{
+            "name": "openssl@3",
+            "homepage": "file:///tmp/not-a-homepage",
+            "linked_keg": null,
+            "installed": [{"version": "3.5.1"}, {"version": "3.5.2"}]
+          }],
+          "casks": []
+        }
+        """)
+
+        XCTAssertEqual(packages, [
+            InstalledPackage(
+                name: "openssl@3",
+                installedVersion: "3.5.2",
+                kind: .formula
+            )
+        ])
+    }
+
+    func testInstalledPackageDecoderAcceptsEmptyInventory() throws {
+        XCTAssertEqual(
+            try HomebrewService.parseInstalledPackagesJSON(
+                #"{"formulae":[],"casks":[]}"#
+            ),
+            []
+        )
+    }
+
+    func testInstalledPackageDecoderRejectsMissingVersion() {
+        XCTAssertThrowsError(try HomebrewService.parseInstalledPackagesJSON("""
+        {
+          "formulae": [],
+          "casks": [{
+            "token": "chatgpt",
+            "homepage": "https://chatgpt.com/",
+            "installed": null
+          }]
+        }
+        """)) { error in
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Homebrew returned no installed version for cask chatgpt."
+            )
+        }
+    }
+
+    func testInstalledPackagesTreatsMalformedJSONAsCommandFailure() async {
+        let runner = StubCommandRunner(results: [
+            CommandResult(
+                exitCode: 0,
+                standardOutput: "unexpected output",
+                standardError: ""
+            )
+        ])
+        let service = makeService(runner: runner)
+
+        do {
+            _ = try await service.installedPackages()
+            XCTFail("Expected malformed installed-package JSON to fail")
+        } catch let HomebrewError.commandFailed(failure) {
+            XCTAssertEqual(failure.operation, "decode installed packages")
+            XCTAssertTrue(failure.output.contains("unexpected output"))
+            XCTAssertTrue(failure.output.contains("could not decode"))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testInstalledPackagesPropagatesCommandFailureAndTimeout() async {
+        let commandFailureRunner = StubCommandRunner(results: [
+            CommandResult(
+                exitCode: 1,
+                standardOutput: "",
+                standardError: "metadata unavailable"
+            )
+        ])
+        let commandFailureService = makeService(runner: commandFailureRunner)
+
+        do {
+            _ = try await commandFailureService.installedPackages()
+            XCTFail("Expected installed-package command failure")
+        } catch let HomebrewError.commandFailed(failure) {
+            XCTAssertEqual(failure.operation, "read installed packages")
+            XCTAssertEqual(failure.output, "metadata unavailable")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        let timeoutRunner = StubCommandRunner(responses: [
+            .timeout(CommandTimeoutError(
+                reason: .absolute,
+                limit: 30,
+                output: "metadata stalled"
+            ))
+        ])
+        let timeoutService = makeService(runner: timeoutRunner)
+
+        do {
+            _ = try await timeoutService.installedPackages()
+            XCTFail("Expected installed-package timeout")
+        } catch let HomebrewError.timedOut(operation, seconds, output) {
+            XCTAssertEqual(operation, "read installed packages")
+            XCTAssertEqual(seconds, 30)
+            XCTAssertEqual(output, "metadata stalled")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testPackageHomepageUsesKindSpecificHomebrewInfoMetadata() async throws {
         let runner = StubCommandRunner(results: [
             CommandResult(
