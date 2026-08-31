@@ -931,6 +931,7 @@ actor HomebrewService {
         environment: [String: String] = [:],
         operation: String,
         timeoutPolicy: CommandTimeoutPolicy,
+        outputMode: CommandRequest.OutputMode = .pipes,
         onOutput: (@Sendable (String) -> Void)? = nil
     ) async throws -> CommandResult {
         do {
@@ -939,7 +940,8 @@ actor HomebrewService {
                     executableURL: executableURL,
                     arguments: arguments,
                     environment: environment,
-                    timeoutPolicy: timeoutPolicy
+                    timeoutPolicy: timeoutPolicy,
+                    outputMode: outputMode
                 ),
                 onOutput: onOutput
             )
@@ -967,17 +969,26 @@ actor HomebrewService {
         )
         defer { packageContext?.setCurrentPackage(id: nil) }
 
+        let relay = PackageProgressRelay(
+            stage: stage,
+            candidates: candidates,
+            packageContext: packageContext,
+            onProgress: onProgress
+        )
+        defer { relay.flush() }
+        var environment = environment
+        // Homebrew flushes stdout/stderr in CI mode, even when using pipes.
+        // Keep this scoped to package operations; do not enable NONINTERACTIVE.
+        environment["CI"] = "1"
+        environment["HOMEBREW_NO_COLOR"] = "1"
+
         return try await run(
             arguments: arguments,
             environment: environment,
             operation: operation,
             timeoutPolicy: timeoutPolicy,
-            onOutput: progressRelay(
-                stage: stage,
-                candidates: candidates,
-                packageContext: packageContext,
-                onProgress: onProgress
-            )
+            outputMode: .mergedPipes,
+            onOutput: { relay.receive($0) }
         )
     }
 
@@ -1087,46 +1098,85 @@ actor HomebrewService {
         }
     }
 
-    private nonisolated func progressRelay(
-        stage: UpdateProgress.Stage,
-        candidates: [HomebrewPackage],
-        packageContext: AskpassPackageContextSession?,
-        onProgress: (@Sendable (UpdateProgress) -> Void)?
-    ) -> (@Sendable (String) -> Void)? {
-        guard onProgress != nil || packageContext != nil else { return nil }
-        let candidateIDsByName = Dictionary(
-            candidates.map { ($0.name, $0.id) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        return { chunk in
-            let message = chunk.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !message.isEmpty else { return }
-            let packageName = Self.packageNameFromProgressOutput(message)
-            if let packageName, let packageID = candidateIDsByName[packageName] {
-                packageContext?.setCurrentPackage(id: packageID)
-            }
-            onProgress?(UpdateProgress(
-                stage: stage,
-                packageName: packageName,
-                message: message
-            ))
-        }
-    }
-
-    private nonisolated static func packageNameFromProgressOutput(_ output: String) -> String? {
-        for rawLine in output.components(separatedBy: .newlines).reversed() {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            for prefix in ["==> Upgrading ", "==> Reinstalling Cask "] where line.hasPrefix(prefix) {
-                return line.dropFirst(prefix.count).split(separator: " ").first.map(String.init)
-            }
-        }
-        return nil
-    }
-
     private nonisolated static func deduplicated(
         _ packages: [HomebrewPackage]
     ) -> [HomebrewPackage] {
         var seen = Set<String>()
         return packages.filter { seen.insert($0.id).inserted }
+    }
+}
+
+private final class PackageProgressRelay: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending = ""
+    private let stage: UpdateProgress.Stage
+    private let candidateIDsByName: [String: String]
+    private let packageContext: AskpassPackageContextSession?
+    private let onProgress: (@Sendable (UpdateProgress) -> Void)?
+
+    init(
+        stage: UpdateProgress.Stage,
+        candidates: [HomebrewPackage],
+        packageContext: AskpassPackageContextSession?,
+        onProgress: (@Sendable (UpdateProgress) -> Void)?
+    ) {
+        self.stage = stage
+        self.packageContext = packageContext
+        self.onProgress = onProgress
+        candidateIDsByName = Dictionary(
+            candidates.map { ($0.name, $0.id) },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
+    func receive(_ chunk: String) {
+        lock.withLock {
+            pending += chunk
+            while let end = pending.firstIndex(where: { $0.isNewline }) {
+                let line = String(pending[..<end])
+                pending.removeSubrange(...end)
+                processLine(line)
+            }
+            // Bound an unterminated progress line without treating it as a name.
+            if pending.utf8.count > 65_536 {
+                pending = ""
+                packageContext?.setCurrentPackage(id: nil)
+            }
+        }
+    }
+
+    func flush() {
+        lock.withLock {
+            processLine(pending)
+            pending = ""
+        }
+    }
+
+    private func processLine(_ line: String) {
+        let message = line.replacingOccurrences(
+            of: "\u{001B}\\[[0-?]*[ -/]*[@-~]",
+            with: "",
+            options: .regularExpression
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty else { return }
+        var packageName: String?
+        for prefix in [
+            "==> Upgrading Cask ", "==> Reinstalling Cask ", "==> Installing Cask ",
+            "==> Upgrading ", "==> Reinstalling ", "==> Installing "
+        ] {
+            guard message.hasPrefix(prefix) else { continue }
+            let subject = message.dropFirst(prefix.count)
+            // Homebrew prints "Installing <parent> dependency: <dependency>".
+            let packageSubject = subject.range(of: " dependency: ").map {
+                subject[$0.upperBound...]
+            } ?? subject
+            let name = packageSubject.split(separator: " ").first.map(String.init)
+            let packageID = name.flatMap { candidateIDsByName[$0] }
+            // An unknown package/dependency must not inherit the previous name.
+            packageContext?.setCurrentPackage(id: packageID)
+            packageName = packageID == nil ? nil : name
+            break
+        }
+        onProgress?(UpdateProgress(stage: stage, packageName: packageName, message: message))
     }
 }

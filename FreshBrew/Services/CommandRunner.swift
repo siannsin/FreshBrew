@@ -23,21 +23,30 @@ struct CommandTimeoutError: Error, Equatable, Sendable {
 }
 
 struct CommandRequest: Equatable, Sendable {
+    enum OutputMode: Equatable, Sendable {
+        case pipes
+        // One pipe preserves ordering without exposing a terminal to the child.
+        case mergedPipes
+    }
+
     let executableURL: URL
     let arguments: [String]
     let environment: [String: String]
     let timeoutPolicy: CommandTimeoutPolicy?
+    let outputMode: OutputMode
 
     init(
         executableURL: URL,
         arguments: [String],
         environment: [String: String] = [:],
-        timeoutPolicy: CommandTimeoutPolicy? = nil
+        timeoutPolicy: CommandTimeoutPolicy? = nil,
+        outputMode: OutputMode = .pipes
     ) {
         self.executableURL = executableURL
         self.arguments = arguments
         self.environment = environment
         self.timeoutPolicy = timeoutPolicy
+        self.outputMode = outputMode
     }
 }
 
@@ -147,13 +156,19 @@ private final class CommandExecution: @unchecked Sendable {
             _, suppliedValue in suppliedValue
         }
         process.standardOutput = standardOutputPipe
-        process.standardError = standardErrorPipe
+        process.standardError = request.outputMode == .mergedPipes
+            ? standardOutputPipe : standardErrorPipe
+        if request.outputMode == .mergedPipes {
+            process.standardInput = FileHandle.nullDevice
+        }
 
         standardOutputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             self?.receive(handle.availableData, isStandardError: false)
         }
-        standardErrorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            self?.receive(handle.availableData, isStandardError: true)
+        if request.outputMode == .pipes {
+            standardErrorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+                self?.receive(handle.availableData, isStandardError: true)
+            }
         }
         process.terminationHandler = { [weak self] finishedProcess in
             self?.processDidTerminate(finishedProcess)
@@ -193,9 +208,7 @@ private final class CommandExecution: @unchecked Sendable {
         lastOutputUptime = DispatchTime.now().uptimeNanoseconds
         lock.unlock()
 
-        if let chunk = String(data: data, encoding: .utf8) {
-            onOutput?(chunk)
-        }
+        onOutput?(String(decoding: data, as: UTF8.self))
     }
 
     private func startTimerIfNeededLocked() {
@@ -297,7 +310,9 @@ private final class CommandExecution: @unchecked Sendable {
         standardOutputPipe.fileHandleForReading.readabilityHandler = nil
         standardErrorPipe.fileHandleForReading.readabilityHandler = nil
         standardOutput.append(standardOutputPipe.fileHandleForReading.readDataToEndOfFile())
-        standardError.append(standardErrorPipe.fileHandleForReading.readDataToEndOfFile())
+        if request.outputMode == .pipes {
+            standardError.append(standardErrorPipe.fileHandleForReading.readDataToEndOfFile())
+        }
 
         lock.lock()
         let cause = completionCause

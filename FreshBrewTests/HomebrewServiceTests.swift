@@ -658,6 +658,12 @@ final class HomebrewServiceTests: XCTestCase {
 
         let requests = await runner.recordedRequests()
         XCTAssertEqual(requests.first?.environment["SUDO_ASKPASS"], helperURL.path)
+        XCTAssertEqual(requests.first?.outputMode, .mergedPipes)
+        XCTAssertEqual(requests.first?.environment["CI"], "1")
+        XCTAssertEqual(requests.first?.environment["HOMEBREW_NO_COLOR"], "1")
+        XCTAssertEqual(requests.last?.outputMode, .pipes)
+        XCTAssertNil(requests.last?.environment["CI"])
+        XCTAssertNil(requests.first?.environment["NONINTERACTIVE"])
         XCTAssertNil(requests.first?.environment["SUDO_ASKPASS_REQUIRE"])
         XCTAssertFalse(requests.first?.arguments.contains { $0.contains("password") } ?? true)
     }
@@ -671,7 +677,7 @@ final class HomebrewServiceTests: XCTestCase {
         let runner = StubCommandRunner(results: [
             CommandResult(
                 exitCode: 0,
-                standardOutput: "==> Upgrading wget",
+                standardOutput: "==> Upgrading wget\n",
                 standardError: ""
             ),
             CommandResult(
@@ -726,6 +732,109 @@ final class HomebrewServiceTests: XCTestCase {
 
         let observedPackages = await runner.observedAskpassPackageNames()
         XCTAssertNil(observedPackages.first ?? nil)
+    }
+
+    func testAskpassContextWaitsForCompleteLinesAndClearsUnknownPackage() async throws {
+        let runner = StubCommandRunner(responses: [
+            .streamed([
+                "==> Upgrad", "ing w", "get\n",
+                "==> Upgrading rip", "grep\n",
+                "==> Upgrading unrelated-package\n"
+            ], CommandResult(exitCode: 0, standardOutput: "", standardError: "")),
+            .result(CommandResult(exitCode: 0, standardOutput: emptyOutdatedJSON, standardError: ""))
+        ])
+        let service = makeService(runner: runner, authorizationContext: AdminAuthorizationContext(
+            askpassExecutableURL: URL(fileURLWithPath: "/tmp/FreshBrewAskpass")
+        ))
+
+        _ = try await service.update(packages: [
+            package(named: "ripgrep", kind: .formula),
+            package(named: "wget", kind: .formula)
+        ], greedy: false)
+
+        let names = await runner.observedAskpassPackageNames()
+        XCTAssertEqual(Array(names.prefix(6)), [nil, nil, "wget", "wget", "ripgrep", nil])
+    }
+
+    func testAskpassContextHandlesColoredProgressAndDependencyTransitions() async throws {
+        let runner = StubCommandRunner(responses: [
+            .streamed([
+                "\u{001B}[32m==> \u{001B}[1mUpgrading wget\u{001B}[0m\r\n",
+                "==> Installing dependency\n",
+                "==> Reinstalling Cask firefox\n"
+            ], CommandResult(exitCode: 0, standardOutput: "", standardError: "")),
+            .result(CommandResult(exitCode: 0, standardOutput: emptyOutdatedJSON, standardError: ""))
+        ])
+        let service = makeService(runner: runner, authorizationContext: AdminAuthorizationContext(
+            askpassExecutableURL: URL(fileURLWithPath: "/tmp/FreshBrewAskpass")
+        ))
+
+        _ = try await service.update(packages: [
+            package(named: "wget", kind: .formula),
+            package(named: "ripgrep", kind: .formula)
+        ], greedy: false)
+
+        let names = await runner.observedAskpassPackageNames()
+        XCTAssertEqual(Array(names.prefix(3)), ["wget", nil, nil])
+    }
+
+    func testAskpassContextFollowsCaskReinstallAndInstallationHeaders() async throws {
+        let runner = StubCommandRunner(responses: [
+            .streamed([
+                "==> Reinstalling Cask firefox\n",
+                "==> Installing Cask firefox\n",
+                "==> Upgrading stats\n"
+            ], CommandResult(exitCode: 0, standardOutput: "", standardError: "")),
+            .result(CommandResult(exitCode: 0, standardOutput: emptyOutdatedJSON, standardError: ""))
+        ])
+        let service = makeService(runner: runner, authorizationContext: AdminAuthorizationContext(
+            askpassExecutableURL: URL(fileURLWithPath: "/tmp/FreshBrewAskpass")
+        ))
+        _ = try await service.update(packages: [
+            package(named: "firefox", kind: .cask),
+            package(named: "stats", kind: .cask)
+        ], greedy: false)
+
+        let names = await runner.observedAskpassPackageNames()
+        XCTAssertEqual(Array(names.prefix(3)), ["firefox", "firefox", "stats"])
+    }
+
+    func testAskpassContextUsesDependencyInsteadOfParentName() async throws {
+        let runner = StubCommandRunner(responses: [
+            .streamed([
+                "==> Upgrading wget\n",
+                "==> Installing wget dependency: openssl@3\n",
+                "==> Upgrading wget dependency: ripgrep\n",
+                "==> Installing dependencies for wget: openssl@3 and ripgrep\n",
+                "==> Installing wget\n"
+            ], CommandResult(exitCode: 0, standardOutput: "", standardError: "")),
+            .result(CommandResult(exitCode: 0, standardOutput: emptyOutdatedJSON, standardError: ""))
+        ])
+        let service = makeService(runner: runner, authorizationContext: AdminAuthorizationContext(
+            askpassExecutableURL: URL(fileURLWithPath: "/tmp/FreshBrewAskpass")
+        ))
+        _ = try await service.update(packages: [
+            package(named: "wget", kind: .formula),
+            package(named: "ripgrep", kind: .formula)
+        ], greedy: false)
+
+        let names = await runner.observedAskpassPackageNames()
+        XCTAssertEqual(Array(names.prefix(5)), ["wget", nil, "ripgrep", nil, "wget"])
+    }
+
+    func testLiveCommandCanReadPackageContextBeforeItExits() async throws {
+        let runner = LivePackageContextProbeRunner()
+        let service = makeService(runner: runner, authorizationContext: AdminAuthorizationContext(
+            askpassExecutableURL: URL(fileURLWithPath: "/tmp/FreshBrewAskpass")
+        ))
+        _ = try await service.update(packages: [
+            package(named: "wget", kind: .formula),
+            package(named: "ripgrep", kind: .formula)
+        ], greedy: false)
+
+        let output = await runner.probeOutput
+        XCTAssertTrue(output.contains("ASKPASS_CONTEXT=formula:wget"))
+        XCTAssertTrue(output.contains("ASKPASS_CONTEXT=formula:ripgrep"))
     }
 
     func testUnexpectedUpdateExitRemovesAskpassContext() async throws {
@@ -847,7 +956,7 @@ final class HomebrewServiceTests: XCTestCase {
     }
 
     private func makeService(
-        runner: StubCommandRunner,
+        runner: any CommandRunning,
         networkIsAvailable: Bool = true,
         authorizationContext: AdminAuthorizationContext? = nil
     ) -> HomebrewService {
@@ -872,6 +981,40 @@ final class HomebrewServiceTests: XCTestCase {
     }
 }
 
+private actor LivePackageContextProbeRunner: CommandRunning {
+    private(set) var probeOutput = ""
+
+    func run(
+        _ request: CommandRequest,
+        onOutput: (@Sendable (String) -> Void)?
+    ) async throws -> CommandResult {
+        guard request.arguments.first == "upgrade" else {
+            return CommandResult(exitCode: 0, standardOutput: #"{"formulae":[],"casks":[]}"#, standardError: "")
+        }
+        // Mirror Homebrew's CI output flushing. Launch a separate context reader
+        // at the password-request point, with no polling or artificial delay.
+        let script = """
+        $stdout.sync = true if ENV['CI']
+        reader = "path = ENV.fetch('FRESHBREW_ASKPASS_CONTEXT'); " \\
+                 "STDOUT.write(File.exist?(path) ? File.read(path) : 'missing')"
+        ['wget', 'ripgrep'].each do |name|
+          puts "==> Upgrading #{name}"
+          context = IO.popen(['/usr/bin/ruby', '-e', reader], &:read)
+          STDERR.puts "ASKPASS_CONTEXT=#{context}"
+        end
+        """
+        let result = try await SystemCommandRunner().run(CommandRequest(
+            executableURL: URL(fileURLWithPath: "/usr/bin/ruby"),
+            arguments: ["-e", script],
+            environment: request.environment,
+            timeoutPolicy: CommandTimeoutPolicy(absoluteLimit: 5),
+            outputMode: request.outputMode
+        ), onOutput: onOutput)
+        probeOutput = result.combinedOutput
+        return result
+    }
+}
+
 private struct StubNetworkAvailabilityChecker: NetworkAvailabilityChecking {
     let isAvailable: Bool
 
@@ -887,6 +1030,7 @@ private actor StubCommandRunner: CommandRunning {
 
     enum Response: Sendable {
         case result(CommandResult)
+        case streamed([String], CommandResult)
         case timeout(CommandTimeoutError)
     }
 
@@ -909,6 +1053,14 @@ private actor StubCommandRunner: CommandRunning {
         requests.append(request)
         guard !responses.isEmpty else { throw StubError.missingResult }
         switch responses.removeFirst() {
+        case let .streamed(chunks, result):
+            for chunk in chunks {
+                onOutput?(chunk)
+                askpassPackageNames.append(
+                    AskpassPackageContextSession.currentPackageName(environment: request.environment)
+                )
+            }
+            return result
         case let .result(result):
             onOutput?(result.combinedOutput)
             askpassPackageNames.append(
