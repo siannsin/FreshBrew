@@ -23,6 +23,7 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var availablePackages: [HomebrewPackage] = []
     @Published private(set) var installedPackages: [InstalledPackage] = []
     @Published private(set) var installedPackagesLoadState: InstalledPackagesLoadState = .notLoaded
+    @Published private(set) var installedPackagesNeedRefresh = false
     @Published private(set) var updateHistory: [UpdateHistoryEntry]
     @Published private(set) var activity: Activity = .idle
     @Published private(set) var progress: UpdateProgress?
@@ -64,7 +65,7 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var launchAtLoginEnabled: Bool
 
     var isRunning: Bool {
-        activity != .idle
+        activity != .idle || installedPackagesLoadState == .loading
     }
 
     var visiblePackages: [HomebrewPackage] {
@@ -146,12 +147,14 @@ final class MenuBarModel: ObservableObject {
 
     @discardableResult
     func loadInstalledPackages() async -> Bool {
-        guard installedPackagesLoadState != .loading else { return false }
+        guard activity == .idle,
+              installedPackagesLoadState != .loading else { return false }
         installedPackagesLoadState = .loading
 
         do {
             installedPackages = try await homebrewService.installedPackages()
             installedPackagesLoadState = .loaded
+            installedPackagesNeedRefresh = false
             return true
         } catch {
             installedPackagesLoadState = .failed(error.localizedDescription)
@@ -484,6 +487,9 @@ final class MenuBarModel: ObservableObject {
 
         let completedPackages = attachHomepageURLs(to: result.completedPackages)
         mergePendingCompletedPackages(completedPackages)
+        if !completedPackages.isEmpty {
+            installedPackagesNeedRefresh = true
+        }
         if completedPackages.contains(where: { $0.id == HomebrewPackage.freshBrewCaskID }) {
             pendingRestartRequired = true
             restartRequired = true

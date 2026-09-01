@@ -2,6 +2,7 @@ import SwiftUI
 
 struct InstalledPackagesView: View {
     @ObservedObject var model: MenuBarModel
+    let isActive: Bool
     let openPackageHomepage: (String, HomebrewPackageKind, URL?) -> Void
 
     @State private var searchText = ""
@@ -37,7 +38,7 @@ struct InstalledPackagesView: View {
         VStack(spacing: 0) {
             controls
             Divider()
-                .padding(.horizontal, 16)
+                .padding(.horizontal, PackageListMetrics.horizontalPadding)
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
@@ -50,9 +51,13 @@ struct InstalledPackagesView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             isSearchFocused = false
-            guard model.installedPackagesLoadState == .notLoaded else { return }
-            // Switching tabs should not cancel an inventory read already in progress.
-            Task { await model.loadInstalledPackages() }
+            loadInventoryIfNeeded()
+        }
+        .onChange(of: isActive) {
+            loadInventoryIfNeeded()
+        }
+        .onChange(of: model.activity) {
+            loadInventoryIfNeeded()
         }
         .onExitCommand {
             isSearchFocused = false
@@ -95,10 +100,10 @@ struct InstalledPackagesView: View {
                 }
                 .frame(width: 16, height: 16)
             }
-            .disabled(isLoading)
+            .disabled(model.isRunning)
             .help("Refresh installed packages")
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, PackageListMetrics.horizontalPadding)
         .padding(.bottom, 10)
     }
 
@@ -222,34 +227,18 @@ struct InstalledPackagesView: View {
         isExpanded: Binding<Bool>
     ) -> some View {
         VStack(spacing: 0) {
-            Button {
+            PackageSectionHeader(
+                title: title,
+                count: packages.count,
+                systemImage: systemImage,
+                isExpanded: isExpanded.wrappedValue
+            ) {
                 isSearchFocused = false
                 isExpanded.wrappedValue.toggle()
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: systemImage)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 16, height: 16)
-
-                    Text("\(title) (\(packages.count))")
-                        .fontWeight(.semibold)
-
-                    Spacer(minLength: 8)
-
-                    Image(systemName: isExpanded.wrappedValue ? "chevron.down" : "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 16, height: 16)
-                }
-                .padding(.horizontal, 16)
-                .frame(maxWidth: .infinity)
-                .frame(height: 34)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
 
             Divider()
-                .padding(.horizontal, 16)
+                .padding(.horizontal, PackageListMetrics.horizontalPadding)
 
             if isExpanded.wrappedValue {
                 ForEach(Array(packages.enumerated()), id: \.element.id) { index, package in
@@ -257,7 +246,7 @@ struct InstalledPackagesView: View {
 
                     if index < packages.count - 1 {
                         Divider()
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, PackageListMetrics.horizontalPadding)
                     }
                 }
             }
@@ -299,6 +288,15 @@ struct InstalledPackagesView: View {
             stored.wrappedValue = isExpanded
         }
     }
+
+    private func loadInventoryIfNeeded() {
+        guard isActive,
+              model.activity == .idle,
+              (model.installedPackagesLoadState == .notLoaded
+                || model.installedPackagesNeedRefresh) else { return }
+        // Switching tabs should not cancel an inventory read already in progress.
+        Task { await model.loadInstalledPackages() }
+    }
 }
 
 private struct InstalledPackageRow: View {
@@ -338,8 +336,8 @@ private struct InstalledPackageRow: View {
             .truncationMode(.middle)
             .frame(width: 112, alignment: .trailing)
         }
-        .padding(.horizontal, 16)
-        .frame(maxWidth: .infinity, minHeight: 35)
+        .padding(.horizontal, PackageListMetrics.horizontalPadding)
+        .frame(maxWidth: .infinity, minHeight: PackageListMetrics.rowHeight)
         .background(isHovered ? Color.primary.opacity(0.04) : Color.clear)
         .contentShape(Rectangle())
         .onHover { isHovering in

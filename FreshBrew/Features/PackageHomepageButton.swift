@@ -12,6 +12,7 @@ struct PackageHomepageButton: View {
                 .underline(isHovering)
         }
         .buttonStyle(.plain)
+        .help("Open package homepage")
         .pointingHandCursor()
         .onHover { isHovering in
             self.isHovering = isHovering

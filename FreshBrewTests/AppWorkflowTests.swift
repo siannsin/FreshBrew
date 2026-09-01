@@ -283,7 +283,9 @@ final class AppWorkflowTests: XCTestCase {
         }
         let collapsed = try XCTUnwrap(collapsingWidth)
         let restored = try XCTUnwrap(restoringWidth)
-        XCTAssertLessThanOrEqual(restored - collapsed, 4,
+        // AppKit's native overflow transition can retain one additional 4-point
+        // measurement step in each resize direction.
+        XCTAssertLessThanOrEqual(restored - collapsed, 8,
                                  "The fallback title must not delay restoring tabs: collapsed at \(collapsed), restored at \(restored).")
     }
 

@@ -41,10 +41,12 @@ final class AppWindowPresenter {
     }
 
     private func showPackages(tab: PackagesWindowState.Tab) -> NSWindowController {
-        packagesWindowState.selectedTab = tab
-        return showWindow(
+        if packagesWindowState.selectedTab != tab {
+            packagesWindowState.selectedTab = tab
+        }
+        let controller = showWindow(
             id: .packages,
-            title: "Packages",
+            title: tab.windowTitle,
             contentSize: NSSize(width: 400, height: 320),
             minimumSize: NSSize(width: 380, height: 300),
             isResizable: true,
@@ -56,6 +58,8 @@ final class AppWindowPresenter {
                 }
             ))
         )
+        controller.window?.title = tab.windowTitle
+        return controller
     }
 
     private func openPackageHomepage(
@@ -160,32 +164,80 @@ final class AppWindowPresenter {
 /// Keeps the native title-bar tabs, supplying plain menu items for toolbar overflow.
 @MainActor
 private final class PackagesHostingController: NSHostingController<AnyView>, NSMenuItemValidation {
+    private static let titleSettleDelay: TimeInterval = 0.01
+
     private let model: MenuBarModel
     private let windowState: PackagesWindowState
-    private let tabs: [PackagesWindowState.Tab] = [.installed, .history, .skipped]
+    private let tabs = PackagesWindowState.Tab.allCases
     private let overflowItem = NSMenuItem(title: "Packages", action: nil, keyEquivalent: "")
     private weak var observedToolbarItem: NSToolbarItem?
+    private var selectionObservation: AnyCancellable?
     private var overflowObservation: AnyCancellable?
     private var overflowMenuObservation: AnyCancellable?
     private var resizeObservation: AnyCancellable?
-    private var lastTitleLayoutWidth: CGFloat?
-    private var titleUpdateScheduled = false
+    private var resizeStartObservation: AnyCancellable?
+    private var resizeEndObservation: AnyCancellable?
+    private var titleUpdateWorkItem: DispatchWorkItem?
+    private var resizeTitleUpdateWorkItem: DispatchWorkItem?
 
     init(rootView: AnyView, model: MenuBarModel, windowState: PackagesWindowState) {
         self.model = model
         self.windowState = windowState
         super.init(rootView: rootView)
 
+        selectionObservation = windowState.$selectedTab
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self, self.viewIfLoaded?.window?.isVisible == true else { return }
+                self.scheduleWindowTitleUpdate()
+            }
+
+        resizeStartObservation = NotificationCenter.default.publisher(
+            for: NSWindow.willStartLiveResizeNotification
+        )
+        .sink { [weak self] notification in
+            guard let self, let window = notification.object as? NSWindow,
+                  window === self.viewIfLoaded?.window else { return }
+            self.titleUpdateWorkItem?.cancel()
+            self.titleUpdateWorkItem = nil
+            self.resizeTitleUpdateWorkItem?.cancel()
+            self.resizeTitleUpdateWorkItem = nil
+            window.titleVisibility = .hidden
+        }
+
         resizeObservation = NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)
             .sink { [weak self] notification in
                 guard let self, let window = notification.object as? NSWindow,
                       window === self.viewIfLoaded?.window else { return }
-                self.scheduleWindowTitleUpdate()
+                self.titleUpdateWorkItem?.cancel()
+                self.titleUpdateWorkItem = nil
+                // The fallback title must not consume space while AppKit decides
+                // whether the native tab selector fits.
+                if window.titleVisibility != .hidden {
+                    window.titleVisibility = .hidden
+                }
+                guard !window.inLiveResize else { return }
+                self.scheduleWindowTitleUpdateAfterResize()
             }
 
+        resizeEndObservation = NotificationCenter.default.publisher(
+            for: NSWindow.didEndLiveResizeNotification
+        )
+        .sink { [weak self] notification in
+            guard let self, let window = notification.object as? NSWindow,
+                  window === self.viewIfLoaded?.window else { return }
+            self.resizeTitleUpdateWorkItem?.cancel()
+            self.resizeTitleUpdateWorkItem = nil
+            self.scheduleWindowTitleUpdate()
+        }
+
         let menu = NSMenu(title: "Packages")
-        for (index, title) in ["Installed", "History", "Skipped"].enumerated() {
-            let item = NSMenuItem(title: title, action: #selector(selectTab(_:)), keyEquivalent: "")
+        for (index, tab) in tabs.enumerated() {
+            let item = NSMenuItem(
+                title: tab.title,
+                action: #selector(selectTab(_:)),
+                keyEquivalent: ""
+            )
             item.target = self
             item.tag = index
             menu.addItem(item)
@@ -214,17 +266,19 @@ private final class PackagesHostingController: NSHostingController<AnyView>, NSM
 
     override func viewDidAppear() {
         super.viewDidAppear()
-        lastTitleLayoutWidth = nil
-        scheduleWindowTitleUpdate()
+        view.window?.titleVisibility = .hidden
+        scheduleWindowTitleUpdateAfterResize()
     }
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        scheduleWindowTitleUpdate()
-        // This window's only toolbar item is the automatic TabView selector.
-        // Do not resize or replace its view; only replace SwiftUI's overflow rendering.
-        guard let toolbar = view.window?.toolbar, toolbar.items.count == 1,
-              let item = toolbar.items.first else { return }
+        if resizeTitleUpdateWorkItem == nil {
+            scheduleWindowTitleUpdate()
+        }
+        // Find the automatic TabView selector by its stable tab labels. Do not
+        // resize or replace its view; only replace SwiftUI's overflow rendering.
+        guard let toolbar = view.window?.toolbar,
+              let item = packageTabItem(in: toolbar) else { return }
         if observedToolbarItem !== item {
             observedToolbarItem = item
             // SwiftUI can replace the overflow menu without laying out the content again.
@@ -237,31 +291,40 @@ private final class PackagesHostingController: NSHostingController<AnyView>, NSM
         if item.menuFormRepresentation !== overflowItem {
             item.menuFormRepresentation = overflowItem
         }
+        updateTabDigitFont()
     }
 
     private func scheduleWindowTitleUpdate() {
-        guard !titleUpdateScheduled else { return }
-        titleUpdateScheduled = true
+        guard titleUpdateWorkItem == nil else { return }
         // Native title changes can update SwiftUI's toolbar state; do them after its view update.
-        DispatchQueue.main.async { [weak self] in
+        let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            defer { self.titleUpdateScheduled = false }
-            guard let window = self.viewIfLoaded?.window else { return }
-            if self.lastTitleLayoutWidth != window.frame.width {
-                self.lastTitleLayoutWidth = window.frame.width
-                if window.toolbar != nil, window.titleVisibility != .hidden {
-                    window.titleVisibility = .hidden
-                    // Re-evaluate available space without the fallback title, outside view layout.
-                    window.contentView?.superview?.layoutSubtreeIfNeeded()
-                }
-            }
+            self.titleUpdateWorkItem = nil
+            guard self.viewIfLoaded?.window != nil else { return }
             self.updateWindowTitle()
             self.updateTabDigitFont()
         }
+        titleUpdateWorkItem = workItem
+        DispatchQueue.main.async(execute: workItem)
+    }
+
+    private func scheduleWindowTitleUpdateAfterResize() {
+        resizeTitleUpdateWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.resizeTitleUpdateWorkItem = nil
+            self.scheduleWindowTitleUpdate()
+        }
+        resizeTitleUpdateWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.titleSettleDelay,
+            execute: workItem
+        )
     }
 
     private func updateTabDigitFont() {
-        guard let rootView = view.window?.toolbar?.items.first?.view,
+        guard let toolbar = view.window?.toolbar,
+              let rootView = packageTabItem(in: toolbar)?.view,
               let control = segmentedControl(in: rootView),
               let currentFont = control.font else { return }
         let tabularFont = NSFont.monospacedDigitSystemFont(
@@ -277,17 +340,31 @@ private final class PackagesHostingController: NSHostingController<AnyView>, NSM
         return view.subviews.lazy.compactMap { self.segmentedControl(in: $0) }.first
     }
 
+    private func packageTabItem(in toolbar: NSToolbar) -> NSToolbarItem? {
+        if let observedToolbarItem, toolbar.items.contains(where: { $0 === observedToolbarItem }) {
+            return observedToolbarItem
+        }
+        return toolbar.items.first { item in
+            guard let itemView = item.view,
+                  let control = segmentedControl(in: itemView),
+                  control.segmentCount == tabs.count else { return false }
+            return control.label(forSegment: 0) == PackagesWindowState.Tab.installed.title
+                && control.label(forSegment: 1) == PackagesWindowState.Tab.history.title
+        }
+    }
+
     private func updateWindowTitle() {
         guard let window = view.window else { return }
-        let title: String
-        switch windowState.selectedTab {
-        case .installed: title = "Installed Packages"
-        case .history: title = "Update History"
-        case .skipped: title = "Skipped Packages"
-        }
+        let title = windowState.selectedTab.windowTitle
         if window.title != title { window.title = title }
-        // Use the toolbar's actual presentation, not a hardcoded width threshold.
-        let tabsAreVisible = window.toolbar?.visibleItems?.isEmpty == false
+        guard !window.inLiveResize else {
+            window.titleVisibility = .hidden
+            return
+        }
+        // Use the selector item's actual AppKit state, not a hardcoded width threshold.
+        let tabsAreVisible = window.toolbar
+            .flatMap { packageTabItem(in: $0) }?
+            .isVisible == true
         let visibility: NSWindow.TitleVisibility = tabsAreVisible ? .hidden : .visible
         if window.titleVisibility != visibility { window.titleVisibility = visibility }
     }
@@ -296,7 +373,9 @@ private final class PackagesHostingController: NSHostingController<AnyView>, NSM
         guard tabs.indices.contains(menuItem.tag) else { return false }
         let tab = tabs[menuItem.tag]
         if tab == .skipped {
-            menuItem.title = "Skipped (\(model.rememberedSkippedPackageIDs.count))"
+            menuItem.title = tab.title(
+                skippedPackageCount: model.rememberedSkippedPackageIDs.count
+            )
         }
         menuItem.state = tab == windowState.selectedTab ? .on : .off
         return true

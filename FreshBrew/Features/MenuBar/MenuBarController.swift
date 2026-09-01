@@ -128,7 +128,6 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             addLastUpdateMenu(latestUpdate)
         }
 
-        addActionItem("Installed Packages", action: #selector(showInstalledPackages))
         addActionItem("Update History", action: #selector(showUpdateHistory))
         addActionItem("Skipped Packages", action: #selector(showSkippedPackages))
 
@@ -475,10 +474,6 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     @objc private func showUpdateHistory() {
         windowPresenter.showUpdateHistory()
-    }
-
-    @objc private func showInstalledPackages() {
-        windowPresenter.showInstalledPackages()
     }
 
     @objc private func showSkippedPackages() {

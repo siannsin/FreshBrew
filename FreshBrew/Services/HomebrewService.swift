@@ -184,6 +184,7 @@ private enum HomebrewInstalledJSONError: LocalizedError {
 actor HomebrewService {
     static let metadataTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 60)
     static let outdatedTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 30)
+    static let installedInventoryTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 30)
     static let homepageTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 5)
     static let packageTimeoutPolicy = CommandTimeoutPolicy(
         absoluteLimit: 30 * 60,
@@ -222,7 +223,7 @@ actor HomebrewService {
             arguments: ["info", "--json=v2", "--installed"],
             environment: ["HOMEBREW_NO_AUTO_UPDATE": "1"],
             operation: "read installed packages",
-            timeoutPolicy: Self.outdatedTimeoutPolicy
+            timeoutPolicy: Self.installedInventoryTimeoutPolicy
         )
         try requireSuccess(result, operation: "read installed packages")
 

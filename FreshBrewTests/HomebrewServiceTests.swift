@@ -152,7 +152,7 @@ final class HomebrewServiceTests: XCTestCase {
         XCTAssertEqual(requests.count, 1)
         XCTAssertEqual(requests[0].arguments, ["info", "--json=v2", "--installed"])
         XCTAssertEqual(requests[0].environment["HOMEBREW_NO_AUTO_UPDATE"], "1")
-        XCTAssertEqual(requests[0].timeoutPolicy, HomebrewService.outdatedTimeoutPolicy)
+        XCTAssertEqual(requests[0].timeoutPolicy, HomebrewService.installedInventoryTimeoutPolicy)
     }
 
     func testInstalledFormulaFallsBackToMostRecentInstallationWhenUnlinked() throws {
@@ -175,6 +175,36 @@ final class HomebrewServiceTests: XCTestCase {
                 kind: .formula
             )
         ])
+    }
+
+    func testInstalledPackageDecoderPrefersLinkedFormulaAndAllowsMissingMetadata() throws {
+        let packages = try HomebrewService.parseInstalledPackagesJSON("""
+        {
+          "formulae": [{
+            "name": "python@3.13",
+            "linked_keg": "3.13.6",
+            "installed": [{"version": "3.13.7"}, {"version": "3.13.6"}]
+          }],
+          "casks": [{
+            "token": "firefox",
+            "installed": "142.0"
+          }]
+        }
+        """)
+
+        XCTAssertEqual(packages, [
+            InstalledPackage(
+                name: "python@3.13",
+                installedVersion: "3.13.6",
+                kind: .formula
+            ),
+            InstalledPackage(
+                name: "firefox",
+                installedVersion: "142.0",
+                kind: .cask
+            )
+        ])
+        XCTAssertTrue(packages.allSatisfy { $0.homepageURL == nil })
     }
 
     func testInstalledPackageDecoderAcceptsEmptyInventory() throws {

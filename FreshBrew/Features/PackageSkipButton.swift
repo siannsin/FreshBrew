@@ -26,7 +26,10 @@ struct PackageSkipButton: View {
             Image(systemName: isSkipped ? "circle.slash.fill" : "circle.slash")
                 .foregroundStyle(usesAccentColor ? Color.accentColor : Color.secondary)
                 .opacity(isVisible ? 1 : 0)
-                .frame(width: 24, height: 24)
+                .frame(
+                    width: PackageListMetrics.actionSize,
+                    height: PackageListMetrics.actionSize
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
