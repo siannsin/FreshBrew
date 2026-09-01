@@ -8,7 +8,7 @@ struct HistoryView: View {
         Group {
             if model.updateHistory.isEmpty {
                 ContentUnavailableView(
-                    "No Update History",
+                    "No update history",
                     systemImage: "clock.arrow.circlepath",
                     description: Text("Completed Homebrew updates will appear here.")
                 )
@@ -27,8 +27,7 @@ struct HistoryView: View {
                 }
             }
         }
-        .frame(minWidth: 380, minHeight: 300)
-        .navigationTitle("Update History")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

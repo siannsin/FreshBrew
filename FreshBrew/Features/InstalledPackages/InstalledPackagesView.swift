@@ -47,22 +47,15 @@ struct InstalledPackagesView: View {
                     }
                 )
         }
-        .frame(
-            minWidth: 380,
-            maxWidth: .infinity,
-            minHeight: 300,
-            maxHeight: .infinity
-        )
-        .navigationTitle("Installed Packages")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             isSearchFocused = false
+            guard model.installedPackagesLoadState == .notLoaded else { return }
+            // Switching tabs should not cancel an inventory read already in progress.
+            Task { await model.loadInstalledPackages() }
         }
         .onExitCommand {
             isSearchFocused = false
-        }
-        .task {
-            guard model.installedPackagesLoadState == .notLoaded else { return }
-            await model.loadInstalledPackages()
         }
     }
 
@@ -70,7 +63,7 @@ struct InstalledPackagesView: View {
         HStack(spacing: 8) {
             TextField("Search packages", text: $searchText)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 230)
+                .frame(maxWidth: .infinity)
                 .focused($isSearchFocused)
                 .overlay(alignment: .trailing) {
                     if !searchText.isEmpty {
@@ -104,15 +97,9 @@ struct InstalledPackagesView: View {
             }
             .disabled(isLoading)
             .help("Refresh installed packages")
-
-            Spacer(minLength: 0)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    isSearchFocused = false
-                }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 10)
     }
 
     @ViewBuilder
@@ -161,7 +148,7 @@ struct InstalledPackagesView: View {
         ContentUnavailableView(
             "No installed packages",
             systemImage: "shippingbox",
-            description: Text("Homebrew did not report any installed formulae or casks.")
+            description: Text("Installed Homebrew packages will appear here.")
         )
     }
 
@@ -190,7 +177,7 @@ struct InstalledPackagesView: View {
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 0) {
+                    VStack(spacing: 0) {
                         Color.clear
                             .frame(height: 0)
                             .id(PackageListAnchor.top)
@@ -198,7 +185,7 @@ struct InstalledPackagesView: View {
                         if !isSearching || !formulae.isEmpty {
                             packageSection(
                                 title: "Formulae",
-                                systemImage: "terminal",
+                                systemImage: "apple.terminal.circle",
                                 packages: formulae,
                                 isExpanded: expansionBinding(
                                     stored: $formulaeExpanded,
@@ -210,7 +197,7 @@ struct InstalledPackagesView: View {
                         if !isSearching || !casks.isEmpty {
                             packageSection(
                                 title: "Casks",
-                                systemImage: "app",
+                                systemImage: "app.grid",
                                 packages: casks,
                                 isExpanded: expansionBinding(
                                     stored: $casksExpanded,

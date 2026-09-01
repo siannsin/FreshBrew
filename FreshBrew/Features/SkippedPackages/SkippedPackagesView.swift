@@ -15,7 +15,7 @@ struct SkippedPackagesView: View {
                 ContentUnavailableView(
                     "No skipped packages",
                     systemImage: "checkmark.circle",
-                    description: Text("Packages you always skip will appear here.")
+                    description: Text("Skipped Homebrew packages will appear here.")
                 )
             } else {
                 List(skippedPackageIDs, id: \.self) { packageID in
@@ -42,13 +42,7 @@ struct SkippedPackagesView: View {
                 }
             }
         }
-        .frame(
-            minWidth: 380,
-            maxWidth: .infinity,
-            minHeight: 300,
-            maxHeight: .infinity
-        )
-        .navigationTitle("Skipped Packages")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private static func displayName(for packageID: String) -> String {

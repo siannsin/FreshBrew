@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AC0000000000000000000001 /* PackagesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000001 /* PackagesView.swift */; };
 		A10000000000000000000001 /* FreshBrewApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* FreshBrewApp.swift */; };
 		A10000000000000000000002 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* AppDelegate.swift */; };
 		A10000000000000000000003 /* AppIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* AppIdentity.swift */; };
@@ -105,6 +106,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		BC0000000000000000000001 /* PackagesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PackagesView.swift; sourceTree = "<group>"; };
 		B10000000000000000000001 /* FreshBrewApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreshBrewApp.swift; sourceTree = "<group>"; };
 		B10000000000000000000002 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		B10000000000000000000003 /* AppIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIdentity.swift; sourceTree = "<group>"; };
@@ -287,6 +289,7 @@
 				C10000000000000000000004 /* MenuBar */,
 				B80000000000000000000001 /* PackageHomepageButton.swift */,
 				BB0000000000000000000001 /* PackageSkipButton.swift */,
+				BC0000000000000000000001 /* PackagesView.swift */,
 				C1000000000000000000000C /* SkippedPackages */,
 			);
 			path = Features;
@@ -544,6 +547,7 @@
 				A50000000000000000000001 /* PackageHomepageService.swift in Sources */,
 				A80000000000000000000001 /* PackageHomepageButton.swift in Sources */,
 				AB0000000000000000000001 /* PackageSkipButton.swift in Sources */,
+				AC0000000000000000000001 /* PackagesView.swift in Sources */,
 				A1000000000000000000001C /* MenuBarModel.swift in Sources */,
 				A10000000000000000000004 /* MenuBarController.swift in Sources */,
 				A10000000000000000000024 /* NotificationActionRouter.swift in Sources */,
