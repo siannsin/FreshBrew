@@ -98,6 +98,7 @@ private final class CommandExecution: @unchecked Sendable {
     private let standardOutput = LockedDataBuffer()
     private let standardError = LockedDataBuffer()
     private let lock = NSLock()
+    private let pipeReadLock = NSLock()
     private let timerQueue = DispatchQueue(label: "net.siann.freshbrew.command-timeout")
 
     private var continuation: CheckedContinuation<CommandResult, Error>?
@@ -163,11 +164,11 @@ private final class CommandExecution: @unchecked Sendable {
         }
 
         standardOutputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            self?.receive(handle.availableData, isStandardError: false)
+            self?.receiveAvailableData(from: handle, isStandardError: false)
         }
         if request.outputMode == .pipes {
             standardErrorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-                self?.receive(handle.availableData, isStandardError: true)
+                self?.receiveAvailableData(from: handle, isStandardError: true)
             }
         }
         process.terminationHandler = { [weak self] finishedProcess in
@@ -194,6 +195,12 @@ private final class CommandExecution: @unchecked Sendable {
         if shouldStopImmediately {
             terminateProcessTree()
         }
+    }
+
+    private func receiveAvailableData(from handle: FileHandle, isStandardError: Bool) {
+        pipeReadLock.lock()
+        receive(handle.availableData, isStandardError: isStandardError)
+        pipeReadLock.unlock()
     }
 
     private func receive(_ data: Data, isStandardError: Bool) {
@@ -309,10 +316,15 @@ private final class CommandExecution: @unchecked Sendable {
     private func processDidTerminate(_ finishedProcess: Process) {
         standardOutputPipe.fileHandleForReading.readabilityHandler = nil
         standardErrorPipe.fileHandleForReading.readabilityHandler = nil
+
+        pipeReadLock.lock()
         standardOutput.append(standardOutputPipe.fileHandleForReading.readDataToEndOfFile())
         if request.outputMode == .pipes {
             standardError.append(standardErrorPipe.fileHandleForReading.readDataToEndOfFile())
         }
+        let capturedStandardOutput = standardOutput.stringValue
+        let capturedStandardError = standardError.stringValue
+        pipeReadLock.unlock()
 
         lock.lock()
         let cause = completionCause
@@ -322,8 +334,8 @@ private final class CommandExecution: @unchecked Sendable {
         case .normal:
             finish(returning: CommandResult(
                 exitCode: finishedProcess.terminationStatus,
-                standardOutput: standardOutput.stringValue,
-                standardError: standardError.stringValue
+                standardOutput: capturedStandardOutput,
+                standardError: capturedStandardError
             ))
         case .cancelled:
             finish(throwing: CancellationError())
@@ -331,7 +343,10 @@ private final class CommandExecution: @unchecked Sendable {
             finish(throwing: CommandTimeoutError(
                 reason: reason,
                 limit: limit,
-                output: combinedOutput
+                output: Self.combinedOutput(
+                    standardOutput: capturedStandardOutput,
+                    standardError: capturedStandardError
+                )
             ))
         }
     }
@@ -364,8 +379,11 @@ private final class CommandExecution: @unchecked Sendable {
         return continuation
     }
 
-    private var combinedOutput: String {
-        [standardOutput.stringValue, standardError.stringValue]
+    private static func combinedOutput(
+        standardOutput: String,
+        standardError: String
+    ) -> String {
+        [standardOutput, standardError]
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
     }
