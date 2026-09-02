@@ -58,20 +58,23 @@ FreshBrew keeps routine Homebrew maintenance close at hand without becoming a fu
   </tr>
 </table>
 
-### Review package activity
+### Browse and review packages
 
 <table>
   <tr>
-    <th width="50%" align="left">Update History</th>
-    <th width="50%" align="left">Skipped Packages</th>
+    <th width="33%" align="left">Installed Packages</th>
+    <th width="33%" align="left">Update History</th>
+    <th width="33%" align="left">Skipped Packages</th>
   </tr>
   <tr>
+    <td>Search installed formulae and casks, review their versions, and manage exclusions.</td>
     <td>Review completed updates, including successful work from partial batches.</td>
     <td>See persistent exclusions and return packages to future checks.</td>
   </tr>
   <tr>
-    <td><img src="docs/images/update-history.png" alt="FreshBrew update history window"></td>
-    <td><img src="docs/images/skipped-packages.png" alt="FreshBrew skipped packages window"></td>
+    <td><img src="docs/images/installed-packages.png" alt="FreshBrew installed packages tab"></td>
+    <td><img src="docs/images/update-history.png" alt="FreshBrew update history tab"></td>
+    <td><img src="docs/images/skipped-packages.png" alt="FreshBrew skipped packages tab"></td>
   </tr>
 </table>
 
@@ -82,7 +85,6 @@ FreshBrew keeps routine Homebrew maintenance close at hand without becoming a fu
 - Check and update Homebrew formulae and casks from the menu bar.
 - Enable Greedy Mode for casks that use Homebrew's `--greedy` behavior.
 - Update all available packages or handle them individually.
-- Follow package homepage links from available updates, recent updates, history, and skipped packages.
 - Detect Homebrew casks that require a forced reinstall and verify results afterward.
 
 ### Automation
@@ -94,10 +96,11 @@ FreshBrew keeps routine Homebrew maintenance close at hand without becoming a fu
 
 ### Package control and recovery
 
+- Browse installed formulae and casks, search by name, and review installed versions.
 - Skip packages once or keep them in a persistent skip list.
+- Follow package homepage links from available updates and package lists.
 - Preserve completed packages in history when only part of a batch succeeds.
 - Retry Homebrew operations that require administrator access.
-- Reopen applications that Homebrew closed during an administrator retry.
 - Retain detailed Homebrew error logs for seven days without storing passwords.
 
 ### Cleanup
@@ -151,7 +154,7 @@ FreshBrew is a menu bar app, so it does not open a normal app window or appear i
 1. Click the FreshBrew icon in the menu bar.
 2. Select **Check Updates**.
 3. Review **Available Updates**, update individual packages, or select **Update All**.
-4. Open **Update History** to review completed work.
+4. Open **Update History** or **Skipped Packages**, then switch between the Installed, History, and Skipped tabs.
 
 FreshBrew never installs Homebrew package updates merely because a check found them. Updating remains a separate user action.
 

@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.0] - September 2026
+
+### Added
+
+- Browse installed Homebrew formulae and casks with search, installed versions, and skip controls.
+
+### Improved
+
+- Installed packages, update history, and skipped packages now share one tabbed window.
+- Skipped packages are grouped into formulae and casks for easier browsing.
+- Package names and homepage links behave consistently across package lists.
+- The administrator prompt more reliably shows which package is being updated.
+
 ## [0.3.0] - August 2026
 
 ### Added
@@ -52,6 +65,7 @@
 - Seven-day diagnostic retention for Homebrew failures without storing administrator passwords.
 - Launch-at-login support.
 
+[0.4.0]: https://github.com/siannsin/FreshBrew/releases/tag/v0.4.0
 [0.3.0]: https://github.com/siannsin/FreshBrew/releases/tag/v0.3.0
 [0.2.0]: https://github.com/siannsin/FreshBrew/releases/tag/v0.2.0
 [0.1.0]: https://github.com/siannsin/FreshBrew/releases/tag/v0.1.0
