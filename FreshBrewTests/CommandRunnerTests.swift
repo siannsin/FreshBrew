@@ -3,6 +3,9 @@ import XCTest
 @testable import FreshBrew
 
 final class CommandRunnerTests: XCTestCase {
+    private static let fixtureTimeout: TimeInterval = 10
+    private static let commandSafetyTimeout: TimeInterval = 15
+
     func testMergedPipeOutputMergesStreamsWithoutMakingInputATerminal() async throws {
         let result = try await SystemCommandRunner().run(CommandRequest(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
@@ -15,27 +18,72 @@ final class CommandRunnerTests: XCTestCase {
         XCTAssertEqual(result.standardError, "")
     }
 
-    func testMergedPipeDeliversBufferedProgressBeforeExitAndSupportsCancellation() async throws {
+    func testMergedPipeDeliversProgressBeforeCommandExit() async throws {
+        let releaseURL = temporaryMarkerURL()
+        defer { try? FileManager.default.removeItem(at: releaseURL) }
+
         let progress = expectation(description: "Progress is delivered while command is running")
         progress.assertForOverFulfill = false
-        let task = Task {
-            try await SystemCommandRunner().run(CommandRequest(
-                executableURL: URL(fileURLWithPath: "/usr/bin/ruby"),
-                arguments: ["-e", "$stdout.sync = true if ENV['CI']; puts '==> Upgrading wget'; sleep 30"],
-                environment: ["CI": "1"],
-                timeoutPolicy: CommandTimeoutPolicy(absoluteLimit: 5),
-                outputMode: .mergedPipes
-            ), onOutput: { chunk in
-                if chunk.contains("==> Upgrading wget") { progress.fulfill() }
-            })
+        let request = CommandRequest(
+            executableURL: URL(fileURLWithPath: "/usr/bin/ruby"),
+            arguments: [
+                "-e",
+                "$stdout.sync = true; puts '==> Upgrading wget'; sleep 0.01 until File.exist?(ARGV.fetch(0))",
+                releaseURL.path
+            ],
+            timeoutPolicy: CommandTimeoutPolicy(absoluteLimit: Self.commandSafetyTimeout),
+            outputMode: .mergedPipes
+        )
+        let onOutput: @Sendable (String) -> Void = { chunk in
+            if chunk.contains("==> Upgrading wget") { progress.fulfill() }
         }
-        await fulfillment(of: [progress], timeout: 3)
+        let task = Task {
+            try await SystemCommandRunner().run(request, onOutput: onOutput)
+        }
+        defer { task.cancel() }
+
+        await fulfillment(of: [progress], timeout: Self.fixtureTimeout)
+        try Data().write(to: releaseURL, options: .atomic)
+        let result = try await task.value
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(result.standardOutput.contains("==> Upgrading wget"))
+    }
+
+    func testMergedPipeCancellationStopsRunningCommand() async throws {
+        let startedURL = temporaryMarkerURL()
+        let request = CommandRequest(
+            executableURL: URL(fileURLWithPath: "/usr/bin/ruby"),
+            arguments: [
+                "-e",
+                "File.write(ARGV.fetch(0), 'started'); sleep 30",
+                startedURL.path
+            ],
+            timeoutPolicy: CommandTimeoutPolicy(absoluteLimit: Self.commandSafetyTimeout),
+            outputMode: .mergedPipes
+        )
+        let task = Task {
+            try await SystemCommandRunner().run(request)
+        }
+        defer {
+            task.cancel()
+            try? FileManager.default.removeItem(at: startedURL)
+        }
+
+        let didStart = try await waitForFile(at: startedURL, timeout: Self.fixtureTimeout)
+        XCTAssertTrue(didStart, "Child process did not start within the fixture timeout")
+        guard didStart else {
+            task.cancel()
+            _ = try? await task.value
+            return
+        }
+
         task.cancel()
         do {
             _ = try await task.value
             XCTFail("Expected cancellation")
         } catch is CancellationError {
-            // Cancellation must finish without waiting for Ruby's sleep.
+            // The running child must stop without waiting for Ruby's sleep.
         }
     }
 
@@ -234,5 +282,24 @@ final class CommandRunnerTests: XCTestCase {
 
         XCTAssertEqual(result.exitCode, 0)
         XCTAssertEqual(result.standardError, "firstsecondthird")
+    }
+
+    private func temporaryMarkerURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("freshbrew-command-runner-\(UUID().uuidString)")
+    }
+
+    private func waitForFile(at url: URL, timeout: TimeInterval) async throws -> Bool {
+        let timeoutNanoseconds = UInt64(timeout * 1_000_000_000)
+        let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
+
+        while DispatchTime.now().uptimeNanoseconds < deadline {
+            if FileManager.default.fileExists(atPath: url.path) {
+                return true
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        return FileManager.default.fileExists(atPath: url.path)
     }
 }
