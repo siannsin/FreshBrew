@@ -1167,15 +1167,15 @@ private final class PackageProgressRelay: @unchecked Sendable {
         ] {
             guard message.hasPrefix(prefix) else { continue }
             let subject = message.dropFirst(prefix.count)
-            // Homebrew prints "Installing <parent> dependency: <dependency>".
-            let packageSubject = subject.range(of: " dependency: ").map {
-                subject[$0.upperBound...]
-            } ?? subject
-            let name = packageSubject.split(separator: " ").first.map(String.init)
+            let name = subject.split(separator: " ").first.map(String.init)
             let packageID = name.flatMap { candidateIDsByName[$0] }
-            // An unknown package/dependency must not inherit the previous name.
-            packageContext?.setCurrentPackage(id: packageID)
-            packageName = packageID == nil ? nil : name
+            // Dependencies and other auxiliary operations belong to the
+            // current selected package. Only another selected top-level
+            // package may replace that context.
+            if let packageID {
+                packageContext?.setCurrentPackage(id: packageID)
+                packageName = name
+            }
             break
         }
         onProgress?(UpdateProgress(stage: stage, packageName: packageName, message: message))

@@ -764,7 +764,7 @@ final class HomebrewServiceTests: XCTestCase {
         XCTAssertNil(observedPackages.first ?? nil)
     }
 
-    func testAskpassContextWaitsForCompleteLinesAndClearsUnknownPackage() async throws {
+    func testAskpassContextWaitsForCompleteLinesAndPreservesSelectedPackageForUnknownOutput() async throws {
         let runner = StubCommandRunner(responses: [
             .streamed([
                 "==> Upgrad", "ing w", "get\n",
@@ -783,10 +783,10 @@ final class HomebrewServiceTests: XCTestCase {
         ], greedy: false)
 
         let names = await runner.observedAskpassPackageNames()
-        XCTAssertEqual(Array(names.prefix(6)), [nil, nil, "wget", "wget", "ripgrep", nil])
+        XCTAssertEqual(Array(names.prefix(6)), [nil, nil, "wget", "wget", "ripgrep", "ripgrep"])
     }
 
-    func testAskpassContextHandlesColoredProgressAndDependencyTransitions() async throws {
+    func testAskpassContextHandlesColoredProgressWithoutClearingSelectedPackage() async throws {
         let runner = StubCommandRunner(responses: [
             .streamed([
                 "\u{001B}[32m==> \u{001B}[1mUpgrading wget\u{001B}[0m\r\n",
@@ -805,7 +805,7 @@ final class HomebrewServiceTests: XCTestCase {
         ], greedy: false)
 
         let names = await runner.observedAskpassPackageNames()
-        XCTAssertEqual(Array(names.prefix(3)), ["wget", nil, nil])
+        XCTAssertEqual(Array(names.prefix(3)), ["wget", "wget", "wget"])
     }
 
     func testAskpassContextFollowsCaskReinstallAndInstallationHeaders() async throws {
@@ -829,7 +829,7 @@ final class HomebrewServiceTests: XCTestCase {
         XCTAssertEqual(Array(names.prefix(3)), ["firefox", "firefox", "stats"])
     }
 
-    func testAskpassContextUsesDependencyInsteadOfParentName() async throws {
+    func testAskpassContextKeepsParentPackageDuringDependencyUpdates() async throws {
         let runner = StubCommandRunner(responses: [
             .streamed([
                 "==> Upgrading wget\n",
@@ -849,7 +849,7 @@ final class HomebrewServiceTests: XCTestCase {
         ], greedy: false)
 
         let names = await runner.observedAskpassPackageNames()
-        XCTAssertEqual(Array(names.prefix(5)), ["wget", nil, "ripgrep", nil, "wget"])
+        XCTAssertEqual(Array(names.prefix(5)), Array(repeating: "wget", count: 5))
     }
 
     func testLiveCommandCanReadPackageContextBeforeItExits() async throws {
