@@ -1025,7 +1025,7 @@ private actor LivePackageContextProbeRunner: CommandRunning {
         // at the password-request point, with no polling or artificial delay.
         let script = """
         $stdout.sync = true if ENV['CI']
-        reader = "path = ENV.fetch('FRESHBREW_ASKPASS_CONTEXT'); " \\
+        reader = "path = ENV.fetch('HOMEBREW_FRESHBREW_PACKAGE_CONTEXT'); " \\
                  "STDOUT.write(File.exist?(path) ? File.read(path) : 'missing')"
         ['wget', 'ripgrep'].each do |name|
           puts "==> Upgrading #{name}"

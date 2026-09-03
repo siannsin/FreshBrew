@@ -9,4 +9,9 @@ enum AppIdentity {
             ?? "0.0.0"
     }
 
+    static var buildNumber: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+            ?? "0"
+    }
+
 }

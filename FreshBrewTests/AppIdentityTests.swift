@@ -10,5 +10,9 @@ final class AppIdentityTests: XCTestCase {
             Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String,
             AppIdentity.displayName
         )
+        XCTAssertEqual(
+            Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
+            AppIdentity.buildNumber
+        )
     }
 }

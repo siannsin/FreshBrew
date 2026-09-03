@@ -65,6 +65,10 @@ final class AdminAuthorizationContextTests: XCTestCase {
         let context = AdminAuthorizationContext(askpassExecutableURL: helperURL)
 
         XCTAssertEqual(
+            AskpassPackageContextSession.environmentKey,
+            "HOMEBREW_FRESHBREW_PACKAGE_CONTEXT"
+        )
+        XCTAssertEqual(
             context.environment(packageContextFileURL: contextURL),
             [
                 "SUDO_ASKPASS": helperURL.path,

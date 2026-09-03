@@ -92,6 +92,13 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private func rebuildMenu() {
         menu.removeAllItems()
 
+        #if DEBUG
+        addInformationalItem(
+            "Debug Build \(AppIdentity.marketingVersion) (\(AppIdentity.buildNumber))"
+        )
+        menu.addItem(.separator())
+        #endif
+
         addInformationalItem(headerTitle)
 
         if model.restartRequired {

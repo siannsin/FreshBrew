@@ -1,7 +1,7 @@
 import Foundation
 
 final class AskpassPackageContextSession: @unchecked Sendable {
-    static let environmentKey = "FRESHBREW_ASKPASS_CONTEXT"
+    static let environmentKey = "HOMEBREW_FRESHBREW_PACKAGE_CONTEXT"
 
     let contextFileURL: URL
 
