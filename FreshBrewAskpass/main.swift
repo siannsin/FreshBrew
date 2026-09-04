@@ -9,7 +9,7 @@ private func requestPassword() -> AskpassResponse {
     application.activate(ignoringOtherApps: true)
 
     let alert = NSAlert()
-    alert.messageText = "FreshBrew needs admin access"
+    alert.messageText = "Homebrew is requesting admin access"
     let packageName = AskpassPackageContextSession.currentPackageName(
         environment: ProcessInfo.processInfo.environment
     )
@@ -23,7 +23,7 @@ private func requestPassword() -> AskpassResponse {
         .deletingLastPathComponent()
     let iconURL = contentsURL.appendingPathComponent("Resources/AppIcon.icns")
     alert.icon = NSImage(contentsOf: iconURL)
-    alert.addButton(withTitle: "Update")
+    alert.addButton(withTitle: "Allow")
     alert.addButton(withTitle: "Cancel")
 
     let passwordField = NSSecureTextField(

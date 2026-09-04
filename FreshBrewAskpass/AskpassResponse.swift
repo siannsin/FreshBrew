@@ -18,8 +18,8 @@ struct AskpassResponse: Equatable, Sendable {
 enum AskpassPromptContent {
     static func informativeText(packageName: String?) -> String {
         guard let packageName else {
-            return "Enter your login password to update."
+            return "Enter your login password to allow this operation."
         }
-        return "Enter your login password to continue updating:\n\n\(packageName)"
+        return "Enter your login password to allow this operation:\n\n\(packageName)"
     }
 }

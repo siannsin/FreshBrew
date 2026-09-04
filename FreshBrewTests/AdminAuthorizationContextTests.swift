@@ -151,11 +151,11 @@ final class AdminAuthorizationContextTests: XCTestCase {
     func testPromptContentShowsKnownPackageOrGenericFallback() {
         XCTAssertEqual(
             AskpassPromptContent.informativeText(packageName: "omnissa-horizon-client"),
-            "Enter your login password to continue updating:\n\nomnissa-horizon-client"
+            "Enter your login password to allow this operation:\n\nomnissa-horizon-client"
         )
         XCTAssertEqual(
             AskpassPromptContent.informativeText(packageName: nil),
-            "Enter your login password to update."
+            "Enter your login password to allow this operation."
         )
     }
 
