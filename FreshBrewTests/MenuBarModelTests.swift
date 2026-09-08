@@ -1133,6 +1133,77 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertEqual(model.lastSuccessfulHomebrewCheckDate, completionDate)
     }
 
+    func testRepeatedPartialChecksPublishPackagesWithoutAdvancingTimestampThenRecover() async {
+        let failure = HomebrewCommandFailure(operation: "update metadata", exitCode: 1, output: "tap invalid")
+        let package = makePackage(named: "firefox", kind: .cask)
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let previousDate = Date(timeIntervalSince1970: 1)
+        dependencies.preferences.lastSuccessfulHomebrewCheckDate = previousDate
+        let model = makeModel(service: FakeHomebrewService(checkResponses: [
+            .partial([package], failure), .partial([package], failure), .packages([package])
+        ]), dependencies: dependencies)
+
+        for _ in 0..<2 {
+            let succeeded = await model.checkUpdates()
+            XCTAssertTrue(succeeded)
+            XCTAssertEqual(model.availablePackages.map(\.id), [package.id])
+            XCTAssertTrue(model.homebrewRefreshIncomplete)
+            XCTAssertNil(model.lastErrorMessage)
+            XCTAssertEqual(model.lastSuccessfulHomebrewCheckDate, previousDate)
+            XCTAssertEqual(dependencies.preferences.lastSuccessfulHomebrewCheckDate, previousDate)
+        }
+        _ = await model.checkUpdates()
+        XCTAssertFalse(model.homebrewRefreshIncomplete)
+        XCTAssertNotEqual(model.lastSuccessfulHomebrewCheckDate, previousDate)
+    }
+
+    func testPartialCheckRespectsSkipsAndDoesNotPostFailureNotification() async {
+        let failure = HomebrewCommandFailure(operation: "update metadata", exitCode: 1, output: "tap invalid")
+        let package = makePackage(named: "firefox", kind: .cask)
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let notifications = FakeNotificationService()
+        let model = makeModel(service: FakeHomebrewService(checkResponses: [
+            .partial([package], failure)
+        ]), dependencies: dependencies, notificationService: notifications)
+        model.skip(package, remember: true)
+
+        _ = await model.checkUpdates()
+
+        XCTAssertEqual(model.availablePackages.map(\.id), [package.id])
+        XCTAssertTrue(model.visiblePackages.isEmpty)
+        let failures = await notifications.failureMessages()
+        XCTAssertTrue(failures.isEmpty)
+        let counts = await notifications.updateCounts()
+        XCTAssertTrue(counts.isEmpty)
+    }
+
+    func testCombinedCheckFailurePreservesPackagesAndLogsBothFailures() async {
+        let refresh = HomebrewCommandFailure(operation: "update metadata", exitCode: 1, output: "refresh failed")
+        let listing = HomebrewError.commandFailed(HomebrewCommandFailure(
+            operation: "check outdated packages", exitCode: 2, output: "listing failed"
+        ))
+        let package = makePackage(named: "firefox", kind: .cask)
+        let referenceDate = Date(timeIntervalSince1970: 1_000)
+        let dependencies = makeDependencies(now: referenceDate)
+        defer { dependencies.cleanUp() }
+        let model = makeModel(service: FakeHomebrewService(checkResponses: [
+            .packages([package]),
+            .combinedFailure(HomebrewCheckFailure(refreshFailure: refresh, listingError: listing))
+        ]), dependencies: dependencies)
+        _ = await model.checkUpdates()
+        let previousDate = model.lastSuccessfulHomebrewCheckDate
+
+        let succeeded = await model.checkUpdates()
+
+        XCTAssertFalse(succeeded)
+        XCTAssertEqual(model.availablePackages.map(\.id), [package.id])
+        XCTAssertEqual(model.lastSuccessfulHomebrewCheckDate, previousDate)
+        let entries = try? await dependencies.errorLogStore.entries(referenceDate: referenceDate)
+        XCTAssertEqual(Set(entries?.map(\.output) ?? []), ["refresh failed", "listing failed"])
+    }
+
     func testFailedAutomaticCheckRemainsEligibleForNextUnlock() async {
         let referenceDate = Date(timeIntervalSince1970: 40_000)
         let service = FakeHomebrewService(checkResponses: [
@@ -1778,6 +1849,8 @@ private final class MutableDateProvider: @unchecked Sendable {
 private actor FakeHomebrewService: HomebrewServicing {
     enum CheckResponse: Sendable {
         case packages([HomebrewPackage])
+        case partial([HomebrewPackage], HomebrewCommandFailure)
+        case combinedFailure(HomebrewCheckFailure)
         case failure(HomebrewError)
     }
 
@@ -1826,13 +1899,17 @@ private actor FakeHomebrewService: HomebrewServicing {
     func checkOutdated(
         greedy: Bool,
         refreshMetadata: Bool
-    ) async throws -> [HomebrewPackage] {
+    ) async throws -> HomebrewCheckResult {
         checkGreedyValues.append(greedy)
         onCheck?()
-        guard !checkResponses.isEmpty else { return [] }
+        guard !checkResponses.isEmpty else { return HomebrewCheckResult(packages: []) }
         switch checkResponses.removeFirst() {
         case let .packages(packages):
-            return packages
+            return HomebrewCheckResult(packages: packages)
+        case let .partial(packages, failure):
+            return HomebrewCheckResult(packages: packages, refreshFailure: failure)
+        case let .combinedFailure(failure):
+            throw failure
         case let .failure(error):
             throw error
         }

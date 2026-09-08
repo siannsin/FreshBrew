@@ -30,6 +30,7 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var statusMessage = "FreshBrew is ready"
     @Published private(set) var lastSuccessfulHomebrewCheckDate: Date?
     @Published private(set) var lastErrorMessage: String?
+    @Published private(set) var homebrewRefreshIncomplete = false
     @Published private(set) var packageHomepageErrorMessage: String?
     @Published private(set) var sessionSkippedPackageIDs = Set<String>()
     @Published private(set) var rememberedSkippedPackageIDs: Set<String>
@@ -182,13 +183,21 @@ final class MenuBarModel: ObservableObject {
         }
 
         do {
-            let packages = try await homebrewService.checkOutdated(
+            let result = try await homebrewService.checkOutdated(
                 greedy: greedyModeEnabled,
                 refreshMetadata: true
             )
-            let successfulCheckDate = now()
-            lastSuccessfulHomebrewCheckDate = successfulCheckDate
-            preferences.lastSuccessfulHomebrewCheckDate = successfulCheckDate
+            let packages = result.packages
+            homebrewRefreshIncomplete = result.refreshFailure != nil
+            if let failure = result.refreshFailure {
+                try? await errorLogStore.record(
+                    operation: failure.operation, output: failure.output, timestamp: now()
+                )
+            } else {
+                let successfulCheckDate = now()
+                lastSuccessfulHomebrewCheckDate = successfulCheckDate
+                preferences.lastSuccessfulHomebrewCheckDate = successfulCheckDate
+            }
             let homepageURLs = await homebrewService.packageHomepageURLs(for: packages)
             packageHomepageStore.save(homepageURLs)
             availablePackages = attachHomepageURLs(to: packages)
@@ -197,11 +206,27 @@ final class MenuBarModel: ObservableObject {
             await notificationService.postUpdatesAvailable(count: visiblePackages.count)
             return true
         } catch {
+            let listingError: any Error
+            if let failure = error as? HomebrewCheckFailure {
+                homebrewRefreshIncomplete = true
+                try? await errorLogStore.record(
+                    operation: failure.refreshFailure.operation,
+                    output: failure.refreshFailure.output,
+                    timestamp: now()
+                )
+                listingError = failure.listingError
+            } else {
+                listingError = error
+            }
+            if listingError is CancellationError {
+                statusMessage = "FreshBrew is ready"
+                return false
+            }
             await handleFailure(
-                error,
+                listingError,
                 operation: "check updates",
                 status: Self.failureStatus(
-                    for: error,
+                    for: listingError,
                     fallback: "Check failed",
                     timeout: "Check timed out"
                 )

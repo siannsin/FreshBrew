@@ -408,7 +408,8 @@ final class HomebrewServiceTests: XCTestCase {
 
         let packages = try await service.checkOutdated(greedy: true)
 
-        XCTAssertEqual(packages.map(\.name), ["firefox"])
+        XCTAssertEqual(packages.packages.map(\.name), ["firefox"])
+        XCTAssertNil(packages.refreshFailure)
         let requests = await runner.recordedRequests()
         XCTAssertEqual(requests.map(\.arguments), [
             ["update"],
@@ -437,6 +438,72 @@ final class HomebrewServiceTests: XCTestCase {
 
         let requests = await runner.recordedRequests()
         XCTAssertTrue(requests.isEmpty)
+    }
+
+    func testRefreshFailuresDoNotBlockSuccessfulListing() async throws {
+        for output in ["Error: Calling depends_on macos: :catalina is disabled!", "Fetching tap failed!"] {
+            let runner = StubCommandRunner(results: [
+                CommandResult(exitCode: 1, standardOutput: "", standardError: output),
+                CommandResult(exitCode: 0, standardOutput: outdatedJSON(
+                    casks: [("firefox", ["1.0"], "2.0")]
+                ), standardError: "")
+            ])
+            let result = try await makeService(runner: runner).checkOutdated(greedy: true)
+            XCTAssertEqual(result.packages.map(\.name), ["firefox"])
+            XCTAssertEqual(result.refreshFailure?.output, output)
+            let requests = await runner.recordedRequests()
+            XCTAssertEqual(requests.last?.arguments, ["outdated", "--json=v2", "--greedy"])
+        }
+    }
+
+    func testRefreshAndListingFailuresAreBothRetained() async throws {
+        let runner = StubCommandRunner(results: [
+            CommandResult(exitCode: 1, standardOutput: "", standardError: "refresh failed"),
+            CommandResult(exitCode: 2, standardOutput: "", standardError: "listing failed")
+        ])
+        do {
+            _ = try await makeService(runner: runner).checkOutdated(greedy: false)
+            XCTFail("Expected listing failure")
+        } catch let failure as HomebrewCheckFailure {
+            XCTAssertEqual(failure.refreshFailure.output, "refresh failed")
+            guard case let .commandFailed(listing) = failure.listingError as? HomebrewError else {
+                return XCTFail("Expected command failure")
+            }
+            XCTAssertEqual(listing.output, "listing failed")
+        }
+    }
+
+    func testRefreshWarningTextWithZeroExitIsSuccessful() async throws {
+        let runner = StubCommandRunner(results: [
+            CommandResult(exitCode: 0, standardOutput: "", standardError: "Warning: deprecated declaration"),
+            CommandResult(exitCode: 0, standardOutput: outdatedJSON(casks: []), standardError: "")
+        ])
+        let result = try await makeService(runner: runner).checkOutdated(greedy: false)
+        XCTAssertNil(result.refreshFailure)
+    }
+
+    func testCancelledRefreshDoesNotStartListing() async throws {
+        let runner = StubCommandRunner(responses: [.cancelled])
+        do {
+            _ = try await makeService(runner: runner).checkOutdated(greedy: false)
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {}
+        let requests = await runner.recordedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [["update"]])
+    }
+
+    func testTimedOutRefreshDoesNotStartListing() async throws {
+        let runner = StubCommandRunner(responses: [.timeout(CommandTimeoutError(
+            reason: .absolute, limit: 30, output: "refresh stalled"
+        ))])
+        do {
+            _ = try await makeService(runner: runner).checkOutdated(greedy: false)
+            XCTFail("Expected timeout")
+        } catch let error as HomebrewError {
+            guard case .timedOut = error else { return XCTFail("Expected timeout") }
+        }
+        let requests = await runner.recordedRequests()
+        XCTAssertEqual(requests.map(\.arguments), [["update"]])
     }
 
     func testCheckOutdatedTreatsMalformedJSONAsCommandFailure() async throws {
@@ -1062,6 +1129,7 @@ private actor StubCommandRunner: CommandRunning {
         case result(CommandResult)
         case streamed([String], CommandResult)
         case timeout(CommandTimeoutError)
+        case cancelled
     }
 
     private var responses: [Response]
@@ -1083,6 +1151,8 @@ private actor StubCommandRunner: CommandRunning {
         requests.append(request)
         guard !responses.isEmpty else { throw StubError.missingResult }
         switch responses.removeFirst() {
+        case .cancelled:
+            throw CancellationError()
         case let .streamed(chunks, result):
             for chunk in chunks {
                 onOutput?(chunk)

@@ -244,8 +244,9 @@ actor HomebrewService {
     func checkOutdated(
         greedy: Bool,
         refreshMetadata: Bool = true
-    ) async throws -> [HomebrewPackage] {
+    ) async throws -> HomebrewCheckResult {
         try ensureExecutableIsAvailable()
+        var refreshFailure: HomebrewCommandFailure?
 
         if refreshMetadata {
             try await ensureNetworkIsAvailable()
@@ -254,9 +255,30 @@ actor HomebrewService {
                 operation: "update metadata",
                 timeoutPolicy: Self.metadataTimeoutPolicy
             )
-            try requireSuccess(refreshResult, operation: "update metadata")
+            if refreshResult.exitCode != 0 {
+                refreshFailure = HomebrewCommandFailure(
+                    operation: "update metadata",
+                    exitCode: refreshResult.exitCode,
+                    output: refreshResult.combinedOutput
+                )
+            }
         }
 
+        try Task.checkCancellation()
+        do {
+            return HomebrewCheckResult(
+                packages: try await listOutdated(greedy: greedy),
+                refreshFailure: refreshFailure
+            )
+        } catch {
+            if let refreshFailure {
+                throw HomebrewCheckFailure(refreshFailure: refreshFailure, listingError: error)
+            }
+            throw error
+        }
+    }
+
+    private func listOutdated(greedy: Bool) async throws -> [HomebrewPackage] {
         let outdatedResult = try await run(
             arguments: Self.outdatedArguments(greedy: greedy),
             environment: ["HOMEBREW_NO_AUTO_UPDATE": "1"],
@@ -490,7 +512,7 @@ actor HomebrewService {
             remainingPackages = try await checkOutdated(
                 greedy: greedy,
                 refreshMetadata: false
-            )
+            ).packages
         } catch {
             let completedPackages = candidates.compactMap { package -> UpdatedPackage? in
                 guard evidencedCompletedPackageIDs.contains(package.id) else { return nil }
@@ -596,7 +618,7 @@ actor HomebrewService {
                 remainingPackages = try await checkOutdated(
                     greedy: greedy,
                     refreshMetadata: false
-                )
+                ).packages
             } catch {
                 return UpdateResult(
                     completedPackages: [Self.updatedPackage(from: package)],
