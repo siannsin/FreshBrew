@@ -158,6 +158,8 @@ FreshBrew is a menu bar app, so it does not open a normal app window or appear i
 
 FreshBrew never installs Homebrew package updates merely because a check found them. Updating remains a separate user action.
 
+“Last checked” shows the last successful update listing. Homebrew attempts to refresh its data as part of the check, but may use cached information if a source cannot be refreshed.
+
 ## Settings
 
 | Setting | Behavior |

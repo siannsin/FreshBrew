@@ -6,6 +6,45 @@ final class CommandRunnerTests: XCTestCase {
     private static let fixtureTimeout: TimeInterval = 10
     private static let commandSafetyTimeout: TimeInterval = 15
 
+    func testCommandEnvironmentRemovalIsLocalToChild() async throws {
+        let originalHome = ProcessInfo.processInfo.environment["HOME"]
+        let result = try await SystemCommandRunner().run(CommandRequest(
+            executableURL: URL(fileURLWithPath: "/usr/bin/env"),
+            arguments: [],
+            environment: ["FRESHBREW_TEST_KEEP": "yes", "HOMEBREW_NO_AUTO_UPDATE": "1"],
+            removedEnvironmentKeys: ["HOME", "HOMEBREW_NO_AUTO_UPDATE"],
+            timeoutPolicy: CommandTimeoutPolicy(absoluteLimit: 5)
+        ))
+        let lines = result.standardOutput.split(separator: "\n")
+        XCTAssertFalse(lines.contains { $0.hasPrefix("HOME=") })
+        XCTAssertFalse(lines.contains { $0.hasPrefix("HOMEBREW_NO_AUTO_UPDATE=") })
+        XCTAssertTrue(lines.contains("FRESHBREW_TEST_KEEP=yes"))
+        XCTAssertEqual(ProcessInfo.processInfo.environment["HOME"], originalHome)
+    }
+
+    func testCancellationStopsCommandAfterExec() async throws {
+        let marker = temporaryMarkerURL()
+        defer { try? FileManager.default.removeItem(at: marker) }
+        let request = CommandRequest(
+            executableURL: URL(fileURLWithPath: "/usr/bin/ruby"),
+            arguments: ["-e", "exec('/usr/bin/ruby', '-e', 'File.write(ARGV.fetch(0), Process.pid.to_s); sleep 30', ARGV.fetch(0))", marker.path],
+            timeoutPolicy: CommandTimeoutPolicy(absoluteLimit: Self.commandSafetyTimeout)
+        )
+        let task = Task { try await SystemCommandRunner().run(request) }
+        defer { task.cancel() }
+        let started = try await waitForFile(at: marker, timeout: Self.fixtureTimeout)
+        XCTAssertTrue(started)
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {}
+        if started, let pid = Int32(try String(contentsOf: marker, encoding: .utf8)) {
+            XCTAssertEqual(kill(pid, 0), -1)
+            XCTAssertEqual(errno, ESRCH)
+        }
+    }
+
     func testMergedPipeOutputMergesStreamsWithoutMakingInputATerminal() async throws {
         let result = try await SystemCommandRunner().run(CommandRequest(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
@@ -92,7 +131,7 @@ final class CommandRunnerTests: XCTestCase {
             do {
                 _ = try await SystemCommandRunner().run(CommandRequest(
                     executableURL: URL(fileURLWithPath: "/bin/sh"),
-                    arguments: ["-c", "printf started; sleep 30"],
+                    arguments: ["-c", "printf started; exec /bin/sh -c 'printf listing; sleep 30'"],
                     timeoutPolicy: CommandTimeoutPolicy(
                         absoluteLimit: reason == .absolute ? 0.5 : 5,
                         inactivityLimit: reason == .inactivity ? 0.5 : nil

@@ -100,10 +100,6 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         #endif
 
         addInformationalItem(headerTitle)
-        if model.homebrewRefreshIncomplete && !model.isRunning
-            && model.lastErrorMessage == nil && model.packageHomepageErrorMessage == nil {
-            addInformationalItem("Update information may be out of date.")
-        }
 
         if model.restartRequired {
             addActionItem(
@@ -155,9 +151,6 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         }
         if let packageHomepageErrorMessage = model.packageHomepageErrorMessage {
             return packageHomepageErrorMessage
-        }
-        if model.homebrewRefreshIncomplete {
-            return "Homebrew refresh incomplete"
         }
         if let lastCheckDate = model.lastSuccessfulHomebrewCheckDate {
             return "Last checked: \(lastCheckDate.formatted(date: .omitted, time: .shortened))"

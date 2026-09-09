@@ -182,7 +182,8 @@ private enum HomebrewInstalledJSONError: LocalizedError {
 }
 
 actor HomebrewService {
-    static let metadataTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 60)
+    // Preserve the former 60-second refresh plus 30-second listing budget.
+    static let initialCheckTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 90)
     static let outdatedTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 30)
     static let installedInventoryTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 30)
     static let homepageTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 5)
@@ -244,47 +245,22 @@ actor HomebrewService {
     func checkOutdated(
         greedy: Bool,
         refreshMetadata: Bool = true
-    ) async throws -> HomebrewCheckResult {
+    ) async throws -> [HomebrewPackage] {
         try ensureExecutableIsAvailable()
-        var refreshFailure: HomebrewCommandFailure?
-
         if refreshMetadata {
             try await ensureNetworkIsAvailable()
-            let refreshResult = try await run(
-                arguments: ["update"],
-                operation: "update metadata",
-                timeoutPolicy: Self.metadataTimeoutPolicy
-            )
-            if refreshResult.exitCode != 0 {
-                refreshFailure = HomebrewCommandFailure(
-                    operation: "update metadata",
-                    exitCode: refreshResult.exitCode,
-                    output: refreshResult.combinedOutput
-                )
-            }
         }
-
         try Task.checkCancellation()
-        do {
-            return HomebrewCheckResult(
-                packages: try await listOutdated(greedy: greedy),
-                refreshFailure: refreshFailure
-            )
-        } catch {
-            if let refreshFailure {
-                throw HomebrewCheckFailure(refreshFailure: refreshFailure, listingError: error)
-            }
-            throw error
-        }
-    }
-
-    private func listOutdated(greedy: Bool) async throws -> [HomebrewPackage] {
         let outdatedResult = try await run(
             arguments: Self.outdatedArguments(greedy: greedy),
-            environment: ["HOMEBREW_NO_AUTO_UPDATE": "1"],
+            environment: refreshMetadata
+                ? ["HOMEBREW_AUTO_UPDATE_SECS": "0"]
+                : ["HOMEBREW_NO_AUTO_UPDATE": "1"],
+            removedEnvironmentKeys: refreshMetadata ? ["HOMEBREW_NO_AUTO_UPDATE"] : [],
             operation: "check outdated packages",
-            timeoutPolicy: Self.outdatedTimeoutPolicy
+            timeoutPolicy: refreshMetadata ? Self.initialCheckTimeoutPolicy : Self.outdatedTimeoutPolicy
         )
+        try Task.checkCancellation()
         try requireSuccess(outdatedResult, operation: "check outdated packages")
         do {
             return try Self.parseOutdatedJSON(outdatedResult.standardOutput)
@@ -512,7 +488,7 @@ actor HomebrewService {
             remainingPackages = try await checkOutdated(
                 greedy: greedy,
                 refreshMetadata: false
-            ).packages
+            )
         } catch {
             let completedPackages = candidates.compactMap { package -> UpdatedPackage? in
                 guard evidencedCompletedPackageIDs.contains(package.id) else { return nil }
@@ -618,7 +594,7 @@ actor HomebrewService {
                 remainingPackages = try await checkOutdated(
                     greedy: greedy,
                     refreshMetadata: false
-                ).packages
+                )
             } catch {
                 return UpdateResult(
                     completedPackages: [Self.updatedPackage(from: package)],
@@ -952,6 +928,7 @@ actor HomebrewService {
     private func run(
         arguments: [String],
         environment: [String: String] = [:],
+        removedEnvironmentKeys: Set<String> = [],
         operation: String,
         timeoutPolicy: CommandTimeoutPolicy,
         outputMode: CommandRequest.OutputMode = .pipes,
@@ -963,6 +940,7 @@ actor HomebrewService {
                     executableURL: executableURL,
                     arguments: arguments,
                     environment: environment,
+                    removedEnvironmentKeys: removedEnvironmentKeys,
                     timeoutPolicy: timeoutPolicy,
                     outputMode: outputMode
                 ),

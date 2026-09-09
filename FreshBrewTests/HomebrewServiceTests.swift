@@ -393,117 +393,85 @@ final class HomebrewServiceTests: XCTestCase {
         }
     }
 
-    func testCheckOutdatedRefreshesThenUsesGreedySetting() async throws {
-        let runner = StubCommandRunner(results: [
-            CommandResult(exitCode: 0, standardOutput: "updated", standardError: ""),
-            CommandResult(
-                exitCode: 0,
-                standardOutput: outdatedJSON(
+    func testInitialCheckUsesOneCommandAndGreedySetting() async throws {
+        for greedy in [false, true] {
+            let runner = StubCommandRunner(results: [
+                CommandResult(exitCode: 0, standardOutput: outdatedJSON(
                     casks: [("firefox", ["1.0"], "2.0")]
-                ),
-                standardError: ""
-            )
+                ), standardError: "Warning: tap definition issue")
+            ])
+            let packages = try await makeService(runner: runner).checkOutdated(greedy: greedy)
+            XCTAssertEqual(packages.map(\.name), ["firefox"])
+            let requests = await runner.recordedRequests()
+            XCTAssertEqual(requests.count, 1)
+            XCTAssertEqual(requests.first?.arguments, ["outdated", "--json=v2"] + (greedy ? ["--greedy"] : []))
+            XCTAssertEqual(requests.first?.environment, ["HOMEBREW_AUTO_UPDATE_SECS": "0"])
+            XCTAssertEqual(requests.first?.removedEnvironmentKeys, ["HOMEBREW_NO_AUTO_UPDATE"])
+            XCTAssertEqual(requests.first?.timeoutPolicy, HomebrewService.initialCheckTimeoutPolicy)
+        }
+    }
+
+    func testVerificationRemainsRefreshFreeWithoutNetworkPreflight() async throws {
+        let runner = StubCommandRunner(results: [
+            CommandResult(exitCode: 0, standardOutput: emptyOutdatedJSON, standardError: "")
         ])
-        let service = makeService(runner: runner)
-
-        let packages = try await service.checkOutdated(greedy: true)
-
-        XCTAssertEqual(packages.packages.map(\.name), ["firefox"])
-        XCTAssertNil(packages.refreshFailure)
+        let packages = try await makeService(runner: runner, networkIsAvailable: false)
+            .checkOutdated(greedy: false, refreshMetadata: false)
+        XCTAssertTrue(packages.isEmpty)
         let requests = await runner.recordedRequests()
-        XCTAssertEqual(requests.map(\.arguments), [
-            ["update"],
-            ["outdated", "--json=v2", "--greedy"]
-        ])
-        XCTAssertEqual(requests.map(\.timeoutPolicy), [
-            HomebrewService.metadataTimeoutPolicy,
-            HomebrewService.outdatedTimeoutPolicy
-        ])
-        XCTAssertEqual(
-            requests.last?.environment["HOMEBREW_NO_AUTO_UPDATE"],
-            "1"
-        )
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(requests.first?.environment, ["HOMEBREW_NO_AUTO_UPDATE": "1"])
+        XCTAssertEqual(requests.first?.removedEnvironmentKeys, [])
+        XCTAssertEqual(requests.first?.timeoutPolicy, HomebrewService.outdatedTimeoutPolicy)
     }
 
     func testCheckOutdatedFailsBeforeRunningHomebrewWhenNetworkIsUnavailable() async throws {
         let runner = StubCommandRunner(results: [])
-        let service = makeService(runner: runner, networkIsAvailable: false)
-
         do {
-            _ = try await service.checkOutdated(greedy: false)
-            XCTFail("Expected the network preflight to fail")
+            _ = try await makeService(runner: runner, networkIsAvailable: false).checkOutdated(greedy: false)
+            XCTFail("Expected network preflight failure")
         } catch let error as HomebrewError {
             XCTAssertEqual(error, .networkUnavailable)
         }
-
         let requests = await runner.recordedRequests()
         XCTAssertTrue(requests.isEmpty)
     }
 
-    func testRefreshFailuresDoNotBlockSuccessfulListing() async throws {
-        for output in ["Error: Calling depends_on macos: :catalina is disabled!", "Fetching tap failed!"] {
-            let runner = StubCommandRunner(results: [
-                CommandResult(exitCode: 1, standardOutput: "", standardError: output),
-                CommandResult(exitCode: 0, standardOutput: outdatedJSON(
-                    casks: [("firefox", ["1.0"], "2.0")]
-                ), standardError: "")
-            ])
-            let result = try await makeService(runner: runner).checkOutdated(greedy: true)
-            XCTAssertEqual(result.packages.map(\.name), ["firefox"])
-            XCTAssertEqual(result.refreshFailure?.output, output)
-            let requests = await runner.recordedRequests()
-            XCTAssertEqual(requests.last?.arguments, ["outdated", "--json=v2", "--greedy"])
-        }
-    }
-
-    func testRefreshAndListingFailuresAreBothRetained() async throws {
+    func testNonzeroListingExitRemainsFailureEvenWithValidJSON() async throws {
         let runner = StubCommandRunner(results: [
-            CommandResult(exitCode: 1, standardOutput: "", standardError: "refresh failed"),
-            CommandResult(exitCode: 2, standardOutput: "", standardError: "listing failed")
+            CommandResult(exitCode: 1, standardOutput: emptyOutdatedJSON, standardError: "listing failed")
         ])
         do {
             _ = try await makeService(runner: runner).checkOutdated(greedy: false)
-            XCTFail("Expected listing failure")
-        } catch let failure as HomebrewCheckFailure {
-            XCTAssertEqual(failure.refreshFailure.output, "refresh failed")
-            guard case let .commandFailed(listing) = failure.listingError as? HomebrewError else {
-                return XCTFail("Expected command failure")
-            }
-            XCTAssertEqual(listing.output, "listing failed")
+            XCTFail("Expected command failure")
+        } catch let HomebrewError.commandFailed(failure) {
+            XCTAssertEqual(failure.exitCode, 1)
+            XCTAssertTrue(failure.output.contains("listing failed"))
         }
     }
 
-    func testRefreshWarningTextWithZeroExitIsSuccessful() async throws {
-        let runner = StubCommandRunner(results: [
-            CommandResult(exitCode: 0, standardOutput: "", standardError: "Warning: deprecated declaration"),
-            CommandResult(exitCode: 0, standardOutput: outdatedJSON(casks: []), standardError: "")
-        ])
-        let result = try await makeService(runner: runner).checkOutdated(greedy: false)
-        XCTAssertNil(result.refreshFailure)
-    }
-
-    func testCancelledRefreshDoesNotStartListing() async throws {
+    func testCancelledInitialCheckDoesNotRetry() async throws {
         let runner = StubCommandRunner(responses: [.cancelled])
         do {
             _ = try await makeService(runner: runner).checkOutdated(greedy: false)
             XCTFail("Expected cancellation")
         } catch is CancellationError {}
         let requests = await runner.recordedRequests()
-        XCTAssertEqual(requests.map(\.arguments), [["update"]])
+        XCTAssertEqual(requests.count, 1)
     }
 
-    func testTimedOutRefreshDoesNotStartListing() async throws {
+    func testTimedOutInitialCheckDoesNotRetry() async throws {
         let runner = StubCommandRunner(responses: [.timeout(CommandTimeoutError(
-            reason: .absolute, limit: 30, output: "refresh stalled"
+            reason: .absolute, limit: 90, output: "refresh stalled"
         ))])
         do {
             _ = try await makeService(runner: runner).checkOutdated(greedy: false)
             XCTFail("Expected timeout")
         } catch let error as HomebrewError {
-            guard case .timedOut = error else { return XCTFail("Expected timeout") }
+            XCTAssertEqual(error, .timedOut(operation: "check outdated packages", seconds: 90, output: "refresh stalled"))
         }
         let requests = await runner.recordedRequests()
-        XCTAssertEqual(requests.map(\.arguments), [["update"]])
+        XCTAssertEqual(requests.count, 1)
     }
 
     func testCheckOutdatedTreatsMalformedJSONAsCommandFailure() async throws {
@@ -528,6 +496,22 @@ final class HomebrewServiceTests: XCTestCase {
             XCTAssertTrue(failure.output.contains("could not decode"))
         } catch {
             XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testInitialCheckRejectsHumanReadablePrefixBeforeValidJSON() async throws {
+        let runner = StubCommandRunner(results: [CommandResult(
+            exitCode: 0,
+            standardOutput: "Custom remote selected\n" + emptyOutdatedJSON,
+            standardError: "refresh diagnostic"
+        )])
+        do {
+            _ = try await makeService(runner: runner).checkOutdated(greedy: false)
+            XCTFail("Expected strict JSON decoding to fail")
+        } catch let HomebrewError.commandFailed(failure) {
+            XCTAssertEqual(failure.operation, "decode outdated packages")
+            XCTAssertTrue(failure.output.contains("Custom remote selected"))
+            XCTAssertTrue(failure.output.contains("refresh diagnostic"))
         }
     }
 

@@ -32,6 +32,7 @@ struct CommandRequest: Equatable, Sendable {
     let executableURL: URL
     let arguments: [String]
     let environment: [String: String]
+    let removedEnvironmentKeys: Set<String>
     let timeoutPolicy: CommandTimeoutPolicy?
     let outputMode: OutputMode
 
@@ -39,12 +40,14 @@ struct CommandRequest: Equatable, Sendable {
         executableURL: URL,
         arguments: [String],
         environment: [String: String] = [:],
+        removedEnvironmentKeys: Set<String> = [],
         timeoutPolicy: CommandTimeoutPolicy? = nil,
         outputMode: OutputMode = .pipes
     ) {
         self.executableURL = executableURL
         self.arguments = arguments
         self.environment = environment
+        self.removedEnvironmentKeys = removedEnvironmentKeys
         self.timeoutPolicy = timeoutPolicy
         self.outputMode = outputMode
     }
@@ -155,6 +158,9 @@ private final class CommandExecution: @unchecked Sendable {
         process.arguments = request.arguments
         process.environment = ProcessInfo.processInfo.environment.merging(request.environment) {
             _, suppliedValue in suppliedValue
+        }
+        for key in request.removedEnvironmentKeys {
+            process.environment?.removeValue(forKey: key)
         }
         process.standardOutput = standardOutputPipe
         process.standardError = request.outputMode == .mergedPipes

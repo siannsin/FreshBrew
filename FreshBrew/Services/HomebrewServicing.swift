@@ -1,22 +1,12 @@
 import Foundation
 
-struct HomebrewCheckResult: Sendable {
-    let packages: [HomebrewPackage]
-    var refreshFailure: HomebrewCommandFailure? = nil
-}
-
-struct HomebrewCheckFailure: Error {
-    let refreshFailure: HomebrewCommandFailure
-    let listingError: any Error
-}
-
 protocol HomebrewServicing: Sendable {
     func installedPackages() async throws -> [InstalledPackage]
 
     func checkOutdated(
         greedy: Bool,
         refreshMetadata: Bool
-    ) async throws -> HomebrewCheckResult
+    ) async throws -> [HomebrewPackage]
 
     func packageHomepageURLs(
         for packages: [HomebrewPackage]
