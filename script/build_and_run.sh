@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Use the system timezone instead of an inherited development-tool override.
+unset TZ
+
 MODE="${1:-run}"
 APP_NAME="FreshBrew"
 BUNDLE_ID="net.siann.freshbrew"
