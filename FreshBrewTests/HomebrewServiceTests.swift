@@ -393,9 +393,10 @@ final class HomebrewServiceTests: XCTestCase {
         }
     }
 
-    func testInitialCheckUsesOneCommandAndGreedySetting() async throws {
+    func testInitialCheckUsesTwoCommandsAndGreedySetting() async throws {
         for greedy in [false, true] {
             let runner = StubCommandRunner(results: [
+                CommandResult(exitCode: 0, standardOutput: "", standardError: ""),
                 CommandResult(exitCode: 0, standardOutput: outdatedJSON(
                     casks: [("firefox", ["1.0"], "2.0")]
                 ), standardError: "Warning: tap definition issue")
@@ -403,11 +404,41 @@ final class HomebrewServiceTests: XCTestCase {
             let packages = try await makeService(runner: runner).checkOutdated(greedy: greedy)
             XCTAssertEqual(packages.map(\.name), ["firefox"])
             let requests = await runner.recordedRequests()
-            XCTAssertEqual(requests.count, 1)
-            XCTAssertEqual(requests.first?.arguments, ["outdated", "--json=v2"] + (greedy ? ["--greedy"] : []))
-            XCTAssertEqual(requests.first?.environment, ["HOMEBREW_AUTO_UPDATE_SECS": "0"])
-            XCTAssertEqual(requests.first?.removedEnvironmentKeys, ["HOMEBREW_NO_AUTO_UPDATE"])
-            XCTAssertEqual(requests.first?.timeoutPolicy, HomebrewService.initialCheckTimeoutPolicy)
+            XCTAssertEqual(requests.count, 2)
+            XCTAssertEqual(requests.first?.arguments, ["update"])
+            XCTAssertEqual(requests.first?.timeoutPolicy, HomebrewService.metadataTimeoutPolicy)
+            XCTAssertEqual(requests.last?.arguments, ["outdated", "--json=v2"] + (greedy ? ["--greedy"] : []))
+            XCTAssertEqual(requests.last?.environment, ["HOMEBREW_NO_AUTO_UPDATE": "1"])
+            XCTAssertEqual(requests.last?.timeoutPolicy, HomebrewService.outdatedTimeoutPolicy)
+        }
+    }
+
+    func testRefreshFailureIsRecordedAndListingContinues() async throws {
+        for listingSucceeds in [true, false] {
+            let logURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: logURL) }
+            let logStore = HomebrewErrorLogStore(fileURL: logURL)
+            let runner = StubCommandRunner(results: [
+                CommandResult(exitCode: 1, standardOutput: "refresh output", standardError: "tap error"),
+                CommandResult(exitCode: listingSucceeds ? 0 : 1,
+                              standardOutput: emptyOutdatedJSON, standardError: "")
+            ])
+            do {
+                let packages = try await makeService(runner: runner, errorLogStore: logStore)
+                    .checkOutdated(greedy: false)
+                XCTAssertTrue(listingSucceeds)
+                XCTAssertTrue(packages.isEmpty)
+            } catch let HomebrewError.commandFailed(failure) {
+                XCTAssertFalse(listingSucceeds)
+                XCTAssertEqual(failure.operation, "check outdated packages")
+            }
+            let entries = try await logStore.entries()
+            XCTAssertEqual(entries.count, 1)
+            XCTAssertEqual(entries.first?.operation, "update metadata")
+            XCTAssertTrue(entries.first?.output.contains("tap error") == true)
+            XCTAssertTrue(entries.first?.output.contains("refresh output") == true)
+            let requests = await runner.recordedRequests()
+            XCTAssertEqual(requests.map(\.arguments), [["update"], ["outdated", "--json=v2"]])
         }
     }
 
@@ -439,6 +470,7 @@ final class HomebrewServiceTests: XCTestCase {
 
     func testNonzeroListingExitRemainsFailureEvenWithValidJSON() async throws {
         let runner = StubCommandRunner(results: [
+            CommandResult(exitCode: 0, standardOutput: "", standardError: ""),
             CommandResult(exitCode: 1, standardOutput: emptyOutdatedJSON, standardError: "listing failed")
         ])
         do {
@@ -462,13 +494,13 @@ final class HomebrewServiceTests: XCTestCase {
 
     func testTimedOutInitialCheckDoesNotRetry() async throws {
         let runner = StubCommandRunner(responses: [.timeout(CommandTimeoutError(
-            reason: .absolute, limit: 90, output: "refresh stalled"
+            reason: .absolute, limit: 60, output: "refresh stalled"
         ))])
         do {
             _ = try await makeService(runner: runner).checkOutdated(greedy: false)
             XCTFail("Expected timeout")
         } catch let error as HomebrewError {
-            XCTAssertEqual(error, .timedOut(operation: "check outdated packages", seconds: 90, output: "refresh stalled"))
+            XCTAssertEqual(error, .timedOut(operation: "update metadata", seconds: 60, output: "refresh stalled"))
         }
         let requests = await runner.recordedRequests()
         XCTAssertEqual(requests.count, 1)
@@ -500,11 +532,14 @@ final class HomebrewServiceTests: XCTestCase {
     }
 
     func testInitialCheckRejectsHumanReadablePrefixBeforeValidJSON() async throws {
-        let runner = StubCommandRunner(results: [CommandResult(
-            exitCode: 0,
-            standardOutput: "Custom remote selected\n" + emptyOutdatedJSON,
-            standardError: "refresh diagnostic"
-        )])
+        let runner = StubCommandRunner(results: [
+            CommandResult(exitCode: 0, standardOutput: "", standardError: ""),
+            CommandResult(
+                exitCode: 0,
+                standardOutput: "Custom remote selected\n" + emptyOutdatedJSON,
+                standardError: "refresh diagnostic"
+            )
+        ])
         do {
             _ = try await makeService(runner: runner).checkOutdated(greedy: false)
             XCTFail("Expected strict JSON decoding to fail")
@@ -1039,7 +1074,10 @@ final class HomebrewServiceTests: XCTestCase {
     private func makeService(
         runner: any CommandRunning,
         networkIsAvailable: Bool = true,
-        authorizationContext: AdminAuthorizationContext? = nil
+        authorizationContext: AdminAuthorizationContext? = nil,
+        errorLogStore: HomebrewErrorLogStore = HomebrewErrorLogStore(
+            fileURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        )
     ) -> HomebrewService {
         HomebrewService(
             executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/brew"),
@@ -1048,6 +1086,7 @@ final class HomebrewServiceTests: XCTestCase {
                 isAvailable: networkIsAvailable
             ),
             authorizationContext: authorizationContext,
+            errorLogStore: errorLogStore,
             executableIsAvailable: { _ in true }
         )
     }

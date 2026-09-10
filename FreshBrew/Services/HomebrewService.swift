@@ -182,8 +182,7 @@ private enum HomebrewInstalledJSONError: LocalizedError {
 }
 
 actor HomebrewService {
-    // Preserve the former 60-second refresh plus 30-second listing budget.
-    static let initialCheckTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 90)
+    static let metadataTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 60)
     static let outdatedTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 30)
     static let installedInventoryTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 30)
     static let homepageTimeoutPolicy = CommandTimeoutPolicy(absoluteLimit: 5)
@@ -198,12 +197,14 @@ actor HomebrewService {
     private let executableIsAvailable: @Sendable (URL) -> Bool
     private let networkAvailabilityChecker: any NetworkAvailabilityChecking
     private let authorizationContext: AdminAuthorizationContext?
+    private let errorLogStore: HomebrewErrorLogStore
 
     init(
         executableURL: URL? = nil,
         runner: any CommandRunning = SystemCommandRunner(),
         networkAvailabilityChecker: any NetworkAvailabilityChecking = SystemNetworkAvailabilityChecker(),
         authorizationContext: AdminAuthorizationContext? = nil,
+        errorLogStore: HomebrewErrorLogStore = HomebrewErrorLogStore(),
         executableIsAvailable: @escaping @Sendable (URL) -> Bool = {
             FileManager.default.isExecutableFile(atPath: $0.path)
         }
@@ -212,6 +213,7 @@ actor HomebrewService {
             isExecutable: executableIsAvailable
         )
         self.runner = runner
+        self.errorLogStore = errorLogStore
         self.networkAvailabilityChecker = networkAvailabilityChecker
         self.executableIsAvailable = executableIsAvailable
         self.authorizationContext = authorizationContext ?? AdminAuthorizationContext.bundled()
@@ -249,16 +251,26 @@ actor HomebrewService {
         try ensureExecutableIsAvailable()
         if refreshMetadata {
             try await ensureNetworkIsAvailable()
+            try Task.checkCancellation()
+            let refreshResult = try await run(
+                arguments: ["update"],
+                operation: "update metadata",
+                timeoutPolicy: Self.metadataTimeoutPolicy
+            )
+            try Task.checkCancellation()
+            if refreshResult.exitCode != 0 {
+                try? await errorLogStore.record(
+                    operation: "update metadata",
+                    output: refreshResult.combinedOutput
+                )
+            }
         }
         try Task.checkCancellation()
         let outdatedResult = try await run(
             arguments: Self.outdatedArguments(greedy: greedy),
-            environment: refreshMetadata
-                ? ["HOMEBREW_AUTO_UPDATE_SECS": "0"]
-                : ["HOMEBREW_NO_AUTO_UPDATE": "1"],
-            removedEnvironmentKeys: refreshMetadata ? ["HOMEBREW_NO_AUTO_UPDATE"] : [],
+            environment: ["HOMEBREW_NO_AUTO_UPDATE": "1"],
             operation: "check outdated packages",
-            timeoutPolicy: refreshMetadata ? Self.initialCheckTimeoutPolicy : Self.outdatedTimeoutPolicy
+            timeoutPolicy: Self.outdatedTimeoutPolicy
         )
         try Task.checkCancellation()
         try requireSuccess(outdatedResult, operation: "check outdated packages")
