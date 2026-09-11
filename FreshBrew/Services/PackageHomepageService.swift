@@ -15,6 +15,7 @@ protocol PackageHomepageResolving: Sendable {
 protocol PackageHomepageOpening: Sendable {
     @discardableResult
     func openPage(
+        packageID: String,
         packageName: String,
         kind: HomebrewPackageKind,
         homepageURL: URL?
@@ -47,6 +48,19 @@ final class PackageHomepageStore: @unchecked Sendable {
         }
         defaults.set(stored, forKey: Self.key)
         lock.unlock()
+    }
+
+    func migrateURL(from legacyPackageID: String, to packageID: String) {
+        guard legacyPackageID != packageID else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        var stored = storedURLs()
+        guard let legacyURL = stored[legacyPackageID] else { return }
+        if stored[packageID] == nil {
+            stored[packageID] = legacyURL
+        }
+        stored.removeValue(forKey: legacyPackageID)
+        defaults.set(stored, forKey: Self.key)
     }
 
     private func storedURLs() -> [String: String] {
@@ -87,11 +101,11 @@ struct PackageHomepageService: PackageHomepageOpening, Sendable {
 
     @discardableResult
     func openPage(
+        packageID: String,
         packageName: String,
         kind: HomebrewPackageKind,
         homepageURL: URL? = nil
     ) async throws -> Bool {
-        let packageID = "\(kind.rawValue):\(packageName)"
         if let homepageURL {
             store.save([packageID: homepageURL])
             return await openURL(homepageURL)

@@ -109,13 +109,16 @@ final class AskpassPackageContextSession: @unchecked Sendable {
             return nil
         }
 
-        let name = String(parts[1])
-        guard !name.isEmpty,
-              name.count <= 160,
-              name.unicodeScalars.allSatisfy(Self.allowedNameCharacters.contains) else {
+        let commandName = String(parts[1])
+        guard !commandName.isEmpty,
+              commandName.count <= 160,
+              commandName.unicodeScalars.allSatisfy(Self.allowedNameCharacters.contains) else {
             return nil
         }
-        return name
+        if parts[0] == "formula" {
+            return commandName.split(separator: "/").last.map(String.init)
+        }
+        return commandName
     }
 
     private static let allowedNameCharacters = CharacterSet(

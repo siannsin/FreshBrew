@@ -206,6 +206,97 @@ final class MenuBarModelTests: XCTestCase {
         )
     }
 
+    func testLegacyFormulaSkipFiltersQualifiedPackageBeforeInventoryMigration() async {
+        let package = makePackage(named: "oven-sh/bun/bun", kind: .formula)
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        dependencies.preferences.rememberedSkippedPackageIDs = [package.legacyID]
+        let model = makeModel(
+            service: FakeHomebrewService(checkResponses: [.packages([package])]),
+            dependencies: dependencies
+        )
+
+        _ = await model.checkUpdates()
+
+        XCTAssertTrue(model.visiblePackages.isEmpty)
+        XCTAssertEqual(model.rememberedSkippedPackageIDs, ["formula:bun"])
+    }
+
+    func testInstalledInventoryMigratesUnambiguousLegacyFormulaReferences() async throws {
+        let package = InstalledPackage(
+            name: "oven-sh/bun/bun",
+            installedVersion: "1.3.0",
+            kind: .formula
+        )
+        let homepageURL = try XCTUnwrap(URL(string: "https://bun.sh"))
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        dependencies.preferences.rememberedSkippedPackageIDs = [package.legacyID]
+        dependencies.packageHomepageStore.save([package.legacyID: homepageURL])
+        let model = makeModel(
+            service: FakeHomebrewService(installedPackageResponses: [.success([package])]),
+            dependencies: dependencies
+        )
+
+        let succeeded = await model.loadInstalledPackages()
+
+        XCTAssertTrue(succeeded)
+        XCTAssertEqual(model.rememberedSkippedPackageIDs, [package.id])
+        XCTAssertEqual(dependencies.preferences.rememberedSkippedPackageIDs, [package.id])
+        XCTAssertNil(dependencies.packageHomepageStore.url(for: package.legacyID))
+        XCTAssertEqual(dependencies.packageHomepageStore.url(for: package.id), homepageURL)
+    }
+
+    func testInstalledInventoryPreservesAmbiguousLegacyFormulaReference() async {
+        let packages = [
+            InstalledPackage(name: "bun", installedVersion: "1.0", kind: .formula),
+            InstalledPackage(
+                name: "oven-sh/bun/bun",
+                installedVersion: "1.3.0",
+                kind: .formula
+            )
+        ]
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        dependencies.preferences.rememberedSkippedPackageIDs = ["formula:bun"]
+        let model = makeModel(
+            service: FakeHomebrewService(installedPackageResponses: [.success(packages)]),
+            dependencies: dependencies
+        )
+
+        let succeeded = await model.loadInstalledPackages()
+
+        XCTAssertTrue(succeeded)
+        XCTAssertEqual(model.rememberedSkippedPackageIDs, ["formula:bun"])
+        XCTAssertTrue(model.isRememberingSkip(packages[0]))
+        XCTAssertFalse(model.isRememberingSkip(packages[1]))
+    }
+
+    func testStoppingExactShortNameSkipDoesNotTransferItToQualifiedPackage() async {
+        let packages = [
+            InstalledPackage(name: "bun", installedVersion: "1.0", kind: .formula),
+            InstalledPackage(
+                name: "oven-sh/bun/bun",
+                installedVersion: "1.3.0",
+                kind: .formula
+            )
+        ]
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        dependencies.preferences.rememberedSkippedPackageIDs = ["formula:bun"]
+        let model = makeModel(
+            service: FakeHomebrewService(installedPackageResponses: [.success(packages)]),
+            dependencies: dependencies
+        )
+        _ = await model.loadInstalledPackages()
+
+        model.forgetSkippedPackage(packages[0])
+
+        XCTAssertFalse(model.isRememberingSkip(packages[1]))
+        XCTAssertFalse(model.isRememberingSkip(packages[0]))
+        XCTAssertTrue(model.rememberedSkippedPackageIDs.isEmpty)
+    }
+
     func testStoppingInstalledPackageSkipClearsRememberedAndSessionState() {
         let package = InstalledPackage(
             name: "chatgpt",

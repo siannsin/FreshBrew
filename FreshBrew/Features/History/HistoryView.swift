@@ -2,7 +2,7 @@ import SwiftUI
 
 struct HistoryView: View {
     @ObservedObject var model: MenuBarModel
-    let openPackageHomepage: (String, HomebrewPackageKind, URL?) -> Void
+    let openPackageHomepage: (String, String, HomebrewPackageKind, URL?) -> Void
 
     var body: some View {
         Group {
@@ -33,7 +33,7 @@ struct HistoryView: View {
 
 private struct HistoryEntryView: View {
     let entry: UpdateHistoryEntry
-    let openPackageHomepage: (String, HomebrewPackageKind, URL?) -> Void
+    let openPackageHomepage: (String, String, HomebrewPackageKind, URL?) -> Void
 
     var body: some View {
         let formulae = entry.packages.filter { $0.kind == .formula }
@@ -63,7 +63,7 @@ private struct HistoryEntryView: View {
 private struct HistoryPackageSection: View {
     let title: String
     let packages: [UpdatedPackage]
-    let openPackageHomepage: (String, HomebrewPackageKind, URL?) -> Void
+    let openPackageHomepage: (String, String, HomebrewPackageKind, URL?) -> Void
 
     var body: some View {
         if !packages.isEmpty {
@@ -74,8 +74,9 @@ private struct HistoryPackageSection: View {
 
                 ForEach(packages) { package in
                     HStack(alignment: .firstTextBaseline) {
-                        PackageHomepageButton(packageName: package.name) {
+                        PackageHomepageButton(packageName: package.displayName) {
                             openPackageHomepage(
+                                package.id,
                                 package.name,
                                 package.kind,
                                 package.homepageURL

@@ -63,6 +63,22 @@ final class PersistenceStoreTests: XCTestCase {
         XCTAssertNil(secondStore.url(for: "formula:chatgpt"))
     }
 
+    func testPackageHomepageStoreMigratesLegacyIdentityWithoutOverwritingCanonicalURL() throws {
+        let defaults = InMemoryPreferencesStore()
+        let store = PackageHomepageStore(defaults: defaults)
+        let legacyURL = try XCTUnwrap(URL(string: "https://example.com/legacy"))
+        let canonicalURL = try XCTUnwrap(URL(string: "https://example.com/canonical"))
+        store.save([
+            "formula:bun": legacyURL,
+            "formula:oven-sh/bun/bun": canonicalURL
+        ])
+
+        store.migrateURL(from: "formula:bun", to: "formula:oven-sh/bun/bun")
+
+        XCTAssertNil(store.url(for: "formula:bun"))
+        XCTAssertEqual(store.url(for: "formula:oven-sh/bun/bun"), canonicalURL)
+    }
+
     func testHistoryStoreDecodesLegacyPackagesWithoutHomepage() throws {
         let defaults = InMemoryPreferencesStore()
         let legacyJSON = """

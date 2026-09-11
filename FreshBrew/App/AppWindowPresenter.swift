@@ -53,8 +53,13 @@ final class AppWindowPresenter {
             content: AnyView(PackagesView(
                 model: model,
                 windowState: packagesWindowState,
-                openPackageHomepage: { [weak self] name, kind, url in
-                    self?.openPackageHomepage(name: name, kind: kind, homepageURL: url)
+                openPackageHomepage: { [weak self] id, name, kind, url in
+                    self?.openPackageHomepage(
+                        id: id,
+                        name: name,
+                        kind: kind,
+                        homepageURL: url
+                    )
                 }
             ))
         )
@@ -63,6 +68,7 @@ final class AppWindowPresenter {
     }
 
     private func openPackageHomepage(
+        id: String,
         name: String,
         kind: HomebrewPackageKind,
         homepageURL: URL?
@@ -71,6 +77,7 @@ final class AppWindowPresenter {
             guard let self else { return }
             do {
                 let opened = try await packageHomepageService.openPage(
+                    packageID: id,
                     packageName: name,
                     kind: kind,
                     homepageURL: homepageURL

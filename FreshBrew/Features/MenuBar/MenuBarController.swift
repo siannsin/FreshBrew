@@ -220,7 +220,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             )
             menu.addItem(Self.makeLastUpdatePackageItem(
                 package: package,
-                title: "\(package.name) \(version)",
+                title: "\(package.displayName) \(version)",
                 target: self,
                 openPageAction: #selector(openUpdatedPackageHomepage(_:))
             ))
@@ -236,8 +236,8 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         alwaysSkipAction: Selector,
         updatesEnabled: Bool
     ) -> NSMenuItem {
-        let packageItem = NSMenuItem(title: package.name, action: nil, keyEquivalent: "")
-        let packageMenu = NSMenu(title: package.name)
+        let packageItem = NSMenuItem(title: package.displayName, action: nil, keyEquivalent: "")
+        let packageMenu = NSMenu(title: package.displayName)
 
         let versionItem = NSMenuItem(
             title: HomebrewVersionDisplay.compactTransition(for: package),
@@ -407,6 +407,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     @objc private func openAvailablePackageHomepage(_ sender: NSMenuItem) {
         guard let package = sender.representedObject as? HomebrewPackage else { return }
         openPackageHomepage(
+            id: package.id,
             name: package.name,
             kind: package.kind,
             homepageURL: package.homepageURL
@@ -416,6 +417,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     @objc private func openUpdatedPackageHomepage(_ sender: NSMenuItem) {
         guard let package = sender.representedObject as? UpdatedPackage else { return }
         openPackageHomepage(
+            id: package.id,
             name: package.name,
             kind: package.kind,
             homepageURL: package.homepageURL
@@ -423,6 +425,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     }
 
     private func openPackageHomepage(
+        id: String,
         name: String,
         kind: HomebrewPackageKind,
         homepageURL: URL?
@@ -431,6 +434,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             guard let self else { return }
             do {
                 let opened = try await packageHomepageService.openPage(
+                    packageID: id,
                     packageName: name,
                     kind: kind,
                     homepageURL: homepageURL

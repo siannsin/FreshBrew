@@ -70,7 +70,11 @@ final class MenuBarModel: ObservableObject {
 
     var visiblePackages: [HomebrewPackage] {
         let skippedIDs = sessionSkippedPackageIDs.union(rememberedSkippedPackageIDs)
-        return availablePackages.filter { !skippedIDs.contains($0.id) }
+        return availablePackages.filter {
+            !skippedIDs.contains($0.id)
+                && !(skippedIDs.contains($0.legacyID)
+                    && legacySkipApplies(packageID: $0.id, legacyID: $0.legacyID))
+        }
     }
 
     var latestUpdate: UpdateHistoryEntry? {
@@ -152,7 +156,9 @@ final class MenuBarModel: ObservableObject {
         installedPackagesLoadState = .loading
 
         do {
-            installedPackages = try await homebrewService.installedPackages()
+            let packages = try await homebrewService.installedPackages()
+            migrateLegacyPackageReferences(using: packages)
+            installedPackages = packages
             installedPackagesLoadState = .loaded
             installedPackagesNeedRefresh = false
             return true
@@ -311,6 +317,20 @@ final class MenuBarModel: ObservableObject {
         rememberSkippedPackage(id: package.id, homepageURL: package.homepageURL)
     }
 
+    func isRememberingSkip(_ package: InstalledPackage) -> Bool {
+        rememberedSkippedPackageIDs.contains(package.id)
+            || (rememberedSkippedPackageIDs.contains(package.legacyID)
+                && legacySkipApplies(packageID: package.id, legacyID: package.legacyID))
+    }
+
+    func forgetSkippedPackage(_ package: InstalledPackage) {
+        rememberedSkippedPackageIDs.remove(package.id)
+        rememberedSkippedPackageIDs.remove(package.legacyID)
+        sessionSkippedPackageIDs.remove(package.id)
+        sessionSkippedPackageIDs.remove(package.legacyID)
+        preferences.rememberedSkippedPackageIDs = rememberedSkippedPackageIDs
+    }
+
     func forgetSkippedPackage(id: String) {
         let wasRemembered = rememberedSkippedPackageIDs.remove(id) != nil
         if wasRemembered {
@@ -330,6 +350,33 @@ final class MenuBarModel: ObservableObject {
         }
         rememberedSkippedPackageIDs.insert(id)
         preferences.rememberedSkippedPackageIDs = rememberedSkippedPackageIDs
+    }
+
+    private func migrateLegacyPackageReferences(using packages: [InstalledPackage]) {
+        let packagesByLegacyID = Dictionary(grouping: packages, by: \.legacyID)
+        var didMigrateSkip = false
+
+        for (legacyID, matches) in packagesByLegacyID {
+            guard matches.count == 1,
+                  let package = matches.first,
+                  package.id != legacyID else { continue }
+
+            packageHomepageStore.migrateURL(from: legacyID, to: package.id)
+            if rememberedSkippedPackageIDs.remove(legacyID) != nil {
+                rememberedSkippedPackageIDs.insert(package.id)
+                didMigrateSkip = true
+            }
+        }
+
+        if didMigrateSkip {
+            preferences.rememberedSkippedPackageIDs = rememberedSkippedPackageIDs
+        }
+    }
+
+    private func legacySkipApplies(packageID: String, legacyID: String) -> Bool {
+        !installedPackages.contains {
+            $0.id == legacyID && $0.id != packageID
+        }
     }
 
     func startAutomaticChecks() {

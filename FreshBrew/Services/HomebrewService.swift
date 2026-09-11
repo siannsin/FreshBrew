@@ -128,12 +128,14 @@ private struct HomebrewInstalledResponse: Decodable, Sendable {
         }
 
         let name: String
+        let fullName: String?
         let homepage: String?
         let linkedKeg: String?
         let installed: [Installation]
 
         private enum CodingKeys: String, CodingKey {
             case name
+            case fullName = "full_name"
             case homepage
             case linkedKeg = "linked_keg"
             case installed
@@ -450,8 +452,8 @@ actor HomebrewService {
         for package in refusedCasks {
             onProgress?(UpdateProgress(
                 stage: .reinstalling,
-                packageName: package.name,
-                message: "Reinstalling \(package.name)"
+                packageName: package.displayName,
+                message: "Reinstalling \(package.displayName)"
             ))
 
             let operation = "force reinstall \(package.name)"
@@ -583,8 +585,8 @@ actor HomebrewService {
         do {
             onProgress?(UpdateProgress(
                 stage: .reinstalling,
-                packageName: package.name,
-                message: "Recovering \(package.name)"
+                packageName: package.displayName,
+                message: "Recovering \(package.displayName)"
             ))
             let result = try await runPackageCommand(
                 arguments: ["reinstall", "--cask", "--force", package.name],
@@ -621,7 +623,7 @@ actor HomebrewService {
             let failures = isStillOutdated ? [HomebrewCommandFailure(
                 operation: "verify recovered cask",
                 exitCode: 0,
-                output: "Homebrew still reports \(package.name) as outdated after recovery."
+                output: "Homebrew still reports \(package.displayName) as outdated after recovery."
             )] : []
 
             return UpdateResult(
@@ -699,12 +701,15 @@ actor HomebrewService {
         )
 
         let formulae = try response.formulae.map { formula in
+            let fullName = formula.fullName?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
             let linkedVersion = formula.linkedKeg?.trimmingCharacters(
                 in: .whitespacesAndNewlines
             )
             let fallbackVersion = formula.installed.last?.version
             return try installedPackage(
-                name: formula.name,
+                name: fullName.flatMap { $0.isEmpty ? nil : $0 } ?? formula.name,
                 installedVersion: linkedVersion?.isEmpty == false
                     ? linkedVersion
                     : fallbackVersion,
@@ -857,7 +862,14 @@ actor HomebrewService {
         struct PackageInfoResponse: Decodable {
             struct FormulaInfo: Decodable {
                 let name: String
+                let fullName: String?
                 let homepage: String?
+
+                private enum CodingKeys: String, CodingKey {
+                    case name
+                    case fullName = "full_name"
+                    case homepage
+                }
             }
 
             struct CaskInfo: Decodable {
@@ -878,7 +890,10 @@ actor HomebrewService {
 
         let values: [(String, String?)] = switch kind {
         case .formula:
-            response.formulae.map { ($0.name, $0.homepage) }
+            response.formulae.map {
+                let fullName = $0.fullName?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return (fullName.flatMap { $0.isEmpty ? nil : $0 } ?? $0.name, $0.homepage)
+            }
         case .cask:
             response.casks.map { ($0.token, $0.homepage) }
         }
@@ -889,7 +904,7 @@ actor HomebrewService {
                   let url = validatedHomepageURL(homepage) else {
                 continue
             }
-            urls["\(kind.rawValue):\(name)"] = url
+            urls[HomebrewPackageIdentity.id(for: name, kind: kind)] = url
         }
         return urls
     }
@@ -1124,6 +1139,7 @@ private final class PackageProgressRelay: @unchecked Sendable {
     private var pending = ""
     private let stage: UpdateProgress.Stage
     private let candidateIDsByName: [String: String]
+    private let candidateDisplayNamesByID: [String: String]
     private let packageContext: AskpassPackageContextSession?
     private let onProgress: (@Sendable (UpdateProgress) -> Void)?
 
@@ -1136,10 +1152,25 @@ private final class PackageProgressRelay: @unchecked Sendable {
         self.stage = stage
         self.packageContext = packageContext
         self.onProgress = onProgress
-        candidateIDsByName = Dictionary(
-            candidates.map { ($0.name, $0.id) },
+        candidateDisplayNamesByID = Dictionary(
+            candidates.map { ($0.id, $0.displayName) },
             uniquingKeysWith: { first, _ in first }
         )
+        var packageIDsByName: [String: String] = [:]
+        var ambiguousNames = Set<String>()
+        for candidate in candidates {
+            for name in Set([candidate.name, candidate.displayName]) {
+                if let existingID = packageIDsByName[name], existingID != candidate.id {
+                    ambiguousNames.insert(name)
+                } else {
+                    packageIDsByName[name] = candidate.id
+                }
+            }
+        }
+        for name in ambiguousNames {
+            packageIDsByName.removeValue(forKey: name)
+        }
+        candidateIDsByName = packageIDsByName
     }
 
     func receive(_ chunk: String) {
@@ -1186,7 +1217,7 @@ private final class PackageProgressRelay: @unchecked Sendable {
             // package may replace that context.
             if let packageID {
                 packageContext?.setCurrentPackage(id: packageID)
-                packageName = name
+                packageName = candidateDisplayNamesByID[packageID]
             }
             break
         }

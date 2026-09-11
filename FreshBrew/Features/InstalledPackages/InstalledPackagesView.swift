@@ -3,7 +3,7 @@ import SwiftUI
 struct InstalledPackagesView: View {
     @ObservedObject var model: MenuBarModel
     let isActive: Bool
-    let openPackageHomepage: (String, HomebrewPackageKind, URL?) -> Void
+    let openPackageHomepage: (String, String, HomebrewPackageKind, URL?) -> Void
 
     @State private var searchText = ""
     @State private var formulaeExpanded = true
@@ -254,11 +254,12 @@ struct InstalledPackagesView: View {
     }
 
     private func packageRow(_ package: InstalledPackage) -> some View {
-        let isSkipped = model.rememberedSkippedPackageIDs.contains(package.id)
+        let isSkipped = model.isRememberingSkip(package)
 
         return InstalledPackageRow(package: package, isSkipped: isSkipped) {
             isSearchFocused = false
             openPackageHomepage(
+                package.id,
                 package.name,
                 package.kind,
                 package.homepageURL
@@ -266,7 +267,7 @@ struct InstalledPackagesView: View {
         } onToggleSkip: {
             isSearchFocused = false
             if isSkipped {
-                model.forgetSkippedPackage(id: package.id)
+                model.forgetSkippedPackage(package)
             } else {
                 model.rememberSkip(package)
             }
@@ -311,11 +312,11 @@ private struct InstalledPackageRow: View {
         HStack(spacing: 6) {
             if package.homepageURL != nil {
                 PackageHomepageButton(
-                    packageName: package.name,
+                    packageName: package.displayName,
                     action: onOpenHomepage
                 )
             } else {
-                Text(package.name)
+                Text(package.displayName)
             }
 
             PackageSkipButton(

@@ -12,10 +12,11 @@ enum InstalledPackagePresentation {
             .filter { package in
                 guard package.kind == kind else { return false }
                 guard !normalizedQuery.isEmpty else { return true }
-                return package.name.localizedCaseInsensitiveContains(normalizedQuery)
+                return package.displayName.localizedCaseInsensitiveContains(normalizedQuery)
+                    || package.name.localizedCaseInsensitiveContains(normalizedQuery)
             }
             .sorted {
-                $0.name.localizedStandardCompare($1.name) == .orderedAscending
+                $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
             }
     }
 }

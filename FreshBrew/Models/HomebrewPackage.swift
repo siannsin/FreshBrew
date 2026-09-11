@@ -5,6 +5,17 @@ enum HomebrewPackageKind: String, Codable, CaseIterable, Sendable {
     case cask
 }
 
+enum HomebrewPackageIdentity {
+    static func displayName(for commandName: String, kind: HomebrewPackageKind) -> String {
+        guard kind == .formula else { return commandName }
+        return commandName.split(separator: "/").last.map(String.init) ?? commandName
+    }
+
+    static func id(for commandName: String, kind: HomebrewPackageKind) -> String {
+        "\(kind.rawValue):\(commandName)"
+    }
+}
+
 struct InstalledPackage: Identifiable, Codable, Hashable, Sendable {
     let name: String
     let installedVersion: String
@@ -24,7 +35,15 @@ struct InstalledPackage: Identifiable, Codable, Hashable, Sendable {
     }
 
     var id: String {
-        "\(kind.rawValue):\(name)"
+        HomebrewPackageIdentity.id(for: name, kind: kind)
+    }
+
+    var displayName: String {
+        HomebrewPackageIdentity.displayName(for: name, kind: kind)
+    }
+
+    var legacyID: String {
+        "\(kind.rawValue):\(displayName)"
     }
 }
 
@@ -52,7 +71,15 @@ struct HomebrewPackage: Identifiable, Codable, Hashable, Sendable {
     }
 
     var id: String {
-        "\(kind.rawValue):\(name)"
+        HomebrewPackageIdentity.id(for: name, kind: kind)
+    }
+
+    var displayName: String {
+        HomebrewPackageIdentity.displayName(for: name, kind: kind)
+    }
+
+    var legacyID: String {
+        "\(kind.rawValue):\(displayName)"
     }
 
     var isFreshBrewCask: Bool {
@@ -82,7 +109,11 @@ struct UpdatedPackage: Identifiable, Codable, Hashable, Sendable {
     }
 
     var id: String {
-        "\(kind.rawValue):\(name)"
+        HomebrewPackageIdentity.id(for: name, kind: kind)
+    }
+
+    var displayName: String {
+        HomebrewPackageIdentity.displayName(for: name, kind: kind)
     }
 }
 

@@ -159,6 +159,21 @@ final class AdminAuthorizationContextTests: XCTestCase {
         )
     }
 
+    func testAskpassDisplaysShortNameForQualifiedFormulaIdentity() {
+        XCTAssertEqual(
+            AskpassPackageContextSession.packageName(
+                fromIdentifier: "formula:oven-sh/bun/bun"
+            ),
+            "bun"
+        )
+        XCTAssertEqual(
+            AskpassPackageContextSession.packageName(
+                fromIdentifier: "cask:visual-studio-code"
+            ),
+            "visual-studio-code"
+        )
+    }
+
     func testConfirmedAskpassResponseWritesOnlyPasswordAndNewline() {
         let response = AskpassResponse.confirmed(password: "private-value")
 

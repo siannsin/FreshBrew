@@ -2,7 +2,7 @@ import SwiftUI
 
 struct SkippedPackagesView: View {
     @ObservedObject var model: MenuBarModel
-    let openPackageHomepage: (String, HomebrewPackageKind, URL?) -> Void
+    let openPackageHomepage: (String, String, HomebrewPackageKind, URL?) -> Void
 
     @State private var formulaeExpanded = true
     @State private var casksExpanded = true
@@ -75,7 +75,8 @@ struct SkippedPackagesView: View {
                     HStack {
                         PackageHomepageButton(packageName: package.name) {
                             openPackageHomepage(
-                                package.name,
+                                package.id,
+                                package.commandName,
                                 package.kind,
                                 model.cachedPackageHomepageURL(for: package.id)
                             )
@@ -109,6 +110,7 @@ struct SkippedPackagesView: View {
 private struct SkippedPackageItem: Identifiable {
     let id: String
     let name: String
+    let commandName: String
     let kind: HomebrewPackageKind
 
     init?(id: String) {
@@ -118,7 +120,8 @@ private struct SkippedPackageItem: Identifiable {
             return nil
         }
         self.id = id
-        name = String(components[1])
+        commandName = String(components[1])
+        name = HomebrewPackageIdentity.displayName(for: commandName, kind: kind)
         self.kind = kind
     }
 }

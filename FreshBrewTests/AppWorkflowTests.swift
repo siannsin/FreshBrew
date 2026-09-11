@@ -327,6 +327,7 @@ final class AppWorkflowTests: XCTestCase {
         )
 
         let opened = try await service.openPage(
+            packageID: "cask:chatgpt",
             packageName: "chatgpt",
             kind: .cask,
             homepageURL: nil
@@ -354,6 +355,7 @@ final class AppWorkflowTests: XCTestCase {
         )
 
         _ = try await service.openPage(
+            packageID: "cask:chatgpt",
             packageName: "chatgpt",
             kind: .cask,
             homepageURL: nil

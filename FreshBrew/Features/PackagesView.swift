@@ -35,7 +35,7 @@ final class PackagesWindowState: ObservableObject {
 struct PackagesView: View {
     @ObservedObject var model: MenuBarModel
     @ObservedObject var windowState: PackagesWindowState
-    let openPackageHomepage: (String, HomebrewPackageKind, URL?) -> Void
+    let openPackageHomepage: (String, String, HomebrewPackageKind, URL?) -> Void
 
     var body: some View {
         TabView(selection: Binding(

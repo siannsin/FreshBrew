@@ -31,9 +31,9 @@ final class HomebrewParsingTests: XCTestCase {
               "future_field": "ignored"
             },
             {
-              "name": "wget",
-              "installed_versions": ["1.24.5"],
-              "current_version": "1.25.0"
+              "name": "oven-sh/bun/bun",
+              "installed_versions": ["1.2.0"],
+              "current_version": "1.3.0"
             }
           ],
           "casks": [
@@ -60,9 +60,9 @@ final class HomebrewParsingTests: XCTestCase {
                 kind: .formula
             ),
             HomebrewPackage(
-                name: "wget",
-                installedVersion: "1.24.5",
-                availableVersion: "1.25.0",
+                name: "oven-sh/bun/bun",
+                installedVersion: "1.2.0",
+                availableVersion: "1.3.0",
                 kind: .formula
             ),
             HomebrewPackage(
@@ -78,6 +78,11 @@ final class HomebrewParsingTests: XCTestCase {
                 kind: .cask
             )
         ])
+
+        let packages = try HomebrewService.parseOutdatedJSON(output)
+        XCTAssertEqual(packages[0].id, "formula:ripgrep")
+        XCTAssertEqual(packages[1].id, "formula:oven-sh/bun/bun")
+        XCTAssertEqual(packages[1].displayName, "bun")
     }
 
     func testOutdatedJSONParserRejectsMissingRequiredFieldsAndMalformedJSON() {
@@ -101,13 +106,14 @@ final class HomebrewParsingTests: XCTestCase {
     }
 
     func testUpgradeArgumentsDisambiguateFormulaeAndCasks() {
-        let formula = package(named: "ripgrep", kind: .formula)
+        let formula = package(named: "oven-sh/bun/bun", kind: .formula)
         let cask = package(named: "firefox", kind: .cask)
 
         XCTAssertEqual(
             HomebrewService.upgradeArguments(for: [formula], greedy: true),
-            ["upgrade", "--formula", "ripgrep"]
+            ["upgrade", "--formula", "oven-sh/bun/bun"]
         )
+        XCTAssertEqual(formula.displayName, "bun")
         XCTAssertEqual(
             HomebrewService.upgradeArguments(for: [cask], greedy: true),
             ["upgrade", "--cask", "--greedy", "firefox"]

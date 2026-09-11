@@ -131,7 +131,10 @@ final class HomebrewServiceTests: XCTestCase {
 
         let packages = try await service.installedPackages()
 
-        XCTAssertEqual(packages.map(\.id), ["formula:ripgrep", "cask:android-studio"])
+        XCTAssertEqual(
+            packages.map(\.id),
+            ["formula:ripgrep", "cask:android-studio"]
+        )
         XCTAssertEqual(packages.map(\.installedVersion), [
             "14.1.1",
             "2026.1.3.8,quail3-patch1"
@@ -175,6 +178,26 @@ final class HomebrewServiceTests: XCTestCase {
                 kind: .formula
             )
         ])
+    }
+
+    func testInstalledFormulaUsesQualifiedNameAsCanonicalIdentity() throws {
+        let packages = try HomebrewService.parseInstalledPackagesJSON("""
+        {
+          "formulae": [{
+            "name": "bun",
+            "full_name": "oven-sh/bun/bun",
+            "linked_keg": "1.3.0",
+            "installed": [{"version": "1.3.0"}]
+          }],
+          "casks": []
+        }
+        """)
+
+        let package = try XCTUnwrap(packages.first)
+        XCTAssertEqual(package.name, "oven-sh/bun/bun")
+        XCTAssertEqual(package.displayName, "bun")
+        XCTAssertEqual(package.id, "formula:oven-sh/bun/bun")
+        XCTAssertEqual(package.legacyID, "formula:bun")
     }
 
     func testInstalledPackageDecoderPrefersLinkedFormulaAndAllowsMissingMetadata() throws {
@@ -344,7 +367,7 @@ final class HomebrewServiceTests: XCTestCase {
 
     func testBulkPackageHomepagesUseOneCommandPerKind() async throws {
         let output = """
-        {"formulae":[{"name":"ripgrep","homepage":"https://github.com/BurntSushi/ripgrep"}],"casks":[{"token":"chatgpt","homepage":"https://chatgpt.com/"}]}
+        {"formulae":[{"name":"bun","full_name":"oven-sh/bun/bun","homepage":"https://bun.sh"}],"casks":[{"token":"chatgpt","homepage":"https://chatgpt.com/"}]}
         """
         let runner = StubCommandRunner(results: [
             CommandResult(exitCode: 0, standardOutput: output, standardError: ""),
@@ -352,20 +375,20 @@ final class HomebrewServiceTests: XCTestCase {
         ])
         let service = makeService(runner: runner)
         let packages = [
-            package(named: "ripgrep", kind: .formula),
+            package(named: "oven-sh/bun/bun", kind: .formula),
             package(named: "chatgpt", kind: .cask)
         ]
 
         let urls = await service.packageHomepageURLs(for: packages)
 
         XCTAssertEqual(
-            urls["formula:ripgrep"]?.absoluteString,
-            "https://github.com/BurntSushi/ripgrep"
+            urls["formula:oven-sh/bun/bun"]?.absoluteString,
+            "https://bun.sh"
         )
         XCTAssertEqual(urls["cask:chatgpt"]?.absoluteString, "https://chatgpt.com/")
         let requests = await runner.recordedRequests()
         XCTAssertEqual(Set(requests.map(\.arguments)), Set([
-            ["info", "--json=v2", "--formula", "ripgrep"],
+            ["info", "--json=v2", "--formula", "oven-sh/bun/bun"],
             ["info", "--json=v2", "--cask", "chatgpt"]
         ]))
         XCTAssertTrue(requests.allSatisfy {
@@ -818,6 +841,34 @@ final class HomebrewServiceTests: XCTestCase {
         )
         XCTAssertEqual(observedPackages.first, "wget")
         XCTAssertFalse(FileManager.default.fileExists(atPath: contextPath))
+    }
+
+    func testQualifiedFormulaUsesCanonicalCommandAndShortProgressName() async throws {
+        let package = package(named: "oven-sh/bun/bun", kind: .formula)
+        let runner = StubCommandRunner(results: [
+            CommandResult(
+                exitCode: 0,
+                standardOutput: "==> Upgrading bun\n",
+                standardError: ""
+            ),
+            CommandResult(exitCode: 0, standardOutput: emptyOutdatedJSON, standardError: "")
+        ])
+        let service = makeService(
+            runner: runner,
+            authorizationContext: AdminAuthorizationContext(
+                askpassExecutableURL: URL(fileURLWithPath: "/tmp/FreshBrewAskpass")
+            )
+        )
+
+        _ = try await service.update(packages: [package], greedy: false)
+
+        let requests = await runner.recordedRequests()
+        XCTAssertEqual(
+            requests.first?.arguments,
+            ["upgrade", "--formula", "oven-sh/bun/bun"]
+        )
+        let observedPackages = await runner.observedAskpassPackageNames()
+        XCTAssertEqual(observedPackages.first, "bun")
     }
 
     func testUnknownProgressPackageLeavesAskpassContextGeneric() async throws {
