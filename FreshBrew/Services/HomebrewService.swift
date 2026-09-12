@@ -819,7 +819,9 @@ actor HomebrewService {
             name: name,
             installedVersion: installedVersion,
             kind: kind,
-            homepageURL: homepage.flatMap(validatedHomepageURL)
+            homepageURL: homepage.flatMap {
+                PackageHomepageURLValidator.validatedURL(from: $0)
+            }
         )
     }
 
@@ -915,7 +917,7 @@ actor HomebrewService {
             throw PackageHomepageError.unavailable
         }
 
-        guard let url = validatedHomepageURL(homepage) else {
+        guard let url = PackageHomepageURLValidator.validatedURL(from: homepage) else {
             throw PackageHomepageError.invalidURL(homepage)
         }
 
@@ -968,26 +970,12 @@ actor HomebrewService {
         var urls: [String: URL] = [:]
         for (name, homepage) in values {
             guard let homepage,
-                  let url = validatedHomepageURL(homepage) else {
+                  let url = PackageHomepageURLValidator.validatedURL(from: homepage) else {
                 continue
             }
             urls[HomebrewPackageIdentity.id(for: name, kind: kind)] = url
         }
         return urls
-    }
-
-    nonisolated private static func validatedHomepageURL(_ homepage: String) -> URL? {
-        let normalizedHomepage = homepage.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let components = URLComponents(string: normalizedHomepage),
-              let scheme = components.scheme?.lowercased(),
-              scheme == "https" || scheme == "http",
-              let host = components.host,
-              !host.isEmpty,
-              components.user == nil,
-              components.password == nil else {
-            return nil
-        }
-        return components.url
     }
 
     private func packageHomepageURLs(

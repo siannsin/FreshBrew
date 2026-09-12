@@ -452,7 +452,7 @@ final class HomebrewServiceTests: XCTestCase {
         })
     }
 
-    func testPackageHomepageRejectsMissingAndNonWebURLs() {
+    func testPackageHomepageRejectsMissingAndInvalidWebURLs() {
         XCTAssertThrowsError(try HomebrewService.parsePackageHomepageURL(
             from: #"{"formulae":[{"homepage":null}],"casks":[]}"#,
             kind: .formula
@@ -468,6 +468,15 @@ final class HomebrewServiceTests: XCTestCase {
                 error as? PackageHomepageError,
                 .invalidURL("file:///tmp/example")
             )
+        }
+
+        for homepage in ["https:///missing-host", "https://user:password@example.com"] {
+            XCTAssertThrowsError(try HomebrewService.parsePackageHomepageURL(
+                from: "{\"formulae\":[{\"homepage\":\"\(homepage)\"}],\"casks\":[]}",
+                kind: .formula
+            )) { error in
+                XCTAssertEqual(error as? PackageHomepageError, .invalidURL(homepage))
+            }
         }
     }
 

@@ -22,6 +22,29 @@ protocol PackageHomepageOpening: Sendable {
     ) async throws -> Bool
 }
 
+enum PackageHomepageURLValidator {
+    nonisolated static func validatedURL(from value: String) -> URL? {
+        let normalizedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let components = URLComponents(string: normalizedValue),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "https" || scheme == "http",
+              let host = components.host,
+              !host.isEmpty,
+              components.user == nil,
+              components.password == nil else {
+            return nil
+        }
+        return components.url
+    }
+
+    nonisolated static func validate(_ url: URL) throws -> URL {
+        guard let validatedURL = validatedURL(from: url.absoluteString) else {
+            throw PackageHomepageError.invalidURL(url.absoluteString)
+        }
+        return validatedURL
+    }
+}
+
 final class PackageHomepageStore: @unchecked Sendable {
     private static let key = "packageHomepageURLs"
 
@@ -68,17 +91,8 @@ final class PackageHomepageStore: @unchecked Sendable {
     }
 
     private static func validatedURL(from value: String?) -> URL? {
-        guard let value,
-              let components = URLComponents(string: value),
-              let scheme = components.scheme?.lowercased(),
-              scheme == "https" || scheme == "http",
-              let host = components.host,
-              !host.isEmpty,
-              components.user == nil,
-              components.password == nil else {
-            return nil
-        }
-        return components.url
+        guard let value else { return nil }
+        return PackageHomepageURLValidator.validatedURL(from: value)
     }
 }
 
@@ -107,19 +121,28 @@ struct PackageHomepageService: PackageHomepageOpening, Sendable {
         homepageURL: URL? = nil
     ) async throws -> Bool {
         if let homepageURL {
-            store.save([packageID: homepageURL])
-            return await openURL(homepageURL)
+            return try await saveAndOpen(homepageURL, for: packageID)
         }
         if let cachedURL = store.url(for: packageID) {
-            return await openURL(cachedURL)
+            return try await openValidated(cachedURL)
         }
 
         let resolvedURL = try await homepageResolver.packageHomepageURL(
             packageName: packageName,
             kind: kind
         )
-        store.save([packageID: resolvedURL])
-        return await openURL(resolvedURL)
+        return try await saveAndOpen(resolvedURL, for: packageID)
+    }
+
+    private func saveAndOpen(_ url: URL, for packageID: String) async throws -> Bool {
+        let validatedURL = try PackageHomepageURLValidator.validate(url)
+        store.save([packageID: validatedURL])
+        return await openURL(validatedURL)
+    }
+
+    private func openValidated(_ url: URL) async throws -> Bool {
+        let validatedURL = try PackageHomepageURLValidator.validate(url)
+        return await openURL(validatedURL)
     }
 }
 
