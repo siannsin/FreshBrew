@@ -51,6 +51,61 @@ private func outdatedJSON(
 
 private let emptyOutdatedJSON = outdatedJSON()
 
+private typealias InstalledFixturePackage = (name: String, version: String)
+
+private struct InstalledFixture: Encodable {
+    struct Formula: Encodable {
+        let name: String
+        let fullName: String?
+        let linkedKeg: String
+        let installed: [Installation]
+
+        struct Installation: Encodable {
+            let version: String
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case name
+            case fullName = "full_name"
+            case linkedKeg = "linked_keg"
+            case installed
+        }
+    }
+
+    struct Cask: Encodable {
+        let token: String
+        let installed: String
+    }
+
+    let formulae: [Formula]
+    let casks: [Cask]
+}
+
+private func installedJSON(
+    formulae: [InstalledFixturePackage] = [],
+    casks: [InstalledFixturePackage] = []
+) -> String {
+    let fixture = InstalledFixture(
+        formulae: formulae.map { package in
+            let isQualified = package.name.contains("/")
+            return InstalledFixture.Formula(
+                name: HomebrewPackageIdentity.displayName(
+                    for: package.name,
+                    kind: .formula
+                ),
+                fullName: isQualified ? package.name : nil,
+                linkedKeg: package.version,
+                installed: [.init(version: package.version)]
+            )
+        },
+        casks: casks.map {
+            InstalledFixture.Cask(token: $0.name, installed: $0.version)
+        }
+    )
+    let data = try! JSONEncoder().encode(fixture)
+    return String(decoding: data, as: UTF8.self)
+}
+
 final class HomebrewServiceTests: XCTestCase {
     func testCurrentHomebrewHostArchitectureMatchesCompiledSlice() {
 #if arch(arm64)
@@ -588,6 +643,11 @@ final class HomebrewServiceTests: XCTestCase {
                     formulae: [("second", ["1.0"], "2.0")]
                 ),
                 standardError: ""
+            ),
+            CommandResult(
+                exitCode: 0,
+                standardOutput: installedJSON(formulae: [("first", "2.0")]),
+                standardError: ""
             )
         ])
         let service = makeService(runner: runner)
@@ -603,11 +663,13 @@ final class HomebrewServiceTests: XCTestCase {
         let requests = await runner.recordedRequests()
         XCTAssertEqual(requests.map(\.arguments), [
             ["upgrade", "--formula", "first", "second"],
-            ["outdated", "--json=v2"]
+            ["outdated", "--json=v2"],
+            ["info", "--json=v2", "--installed"]
         ])
         XCTAssertEqual(requests.map(\.timeoutPolicy), [
             HomebrewService.packageTimeoutPolicy,
-            HomebrewService.outdatedTimeoutPolicy
+            HomebrewService.outdatedTimeoutPolicy,
+            HomebrewService.installedInventoryTimeoutPolicy
         ])
     }
 
@@ -622,6 +684,11 @@ final class HomebrewServiceTests: XCTestCase {
             CommandResult(
                 exitCode: 0,
                 standardOutput: emptyOutdatedJSON,
+                standardError: ""
+            ),
+            CommandResult(
+                exitCode: 0,
+                standardOutput: installedJSON(casks: [("chatgpt", "2.0")]),
                 standardError: ""
             )
         ])
@@ -652,6 +719,11 @@ final class HomebrewServiceTests: XCTestCase {
                     casks: [("large-cask", ["1.0"], "2.0")]
                 ),
                 standardError: ""
+            )),
+            .result(CommandResult(
+                exitCode: 0,
+                standardOutput: installedJSON(casks: [("large-cask", "1.0")]),
+                standardError: ""
             ))
         ])
         let service = makeService(runner: runner)
@@ -666,7 +738,8 @@ final class HomebrewServiceTests: XCTestCase {
         let requests = await runner.recordedRequests()
         XCTAssertEqual(requests.map(\.arguments), [
             ["upgrade", "--cask", "--greedy", "large-cask"],
-            ["outdated", "--json=v2", "--greedy"]
+            ["outdated", "--json=v2", "--greedy"],
+            ["info", "--json=v2", "--installed"]
         ])
     }
 
@@ -683,6 +756,11 @@ final class HomebrewServiceTests: XCTestCase {
                 exitCode: 0,
                 standardOutput: emptyOutdatedJSON,
                 standardError: ""
+            ),
+            CommandResult(
+                exitCode: 0,
+                standardOutput: installedJSON(casks: [("duckduckgo", "2.0")]),
+                standardError: ""
             )
         ])
         let service = makeService(runner: runner)
@@ -695,7 +773,8 @@ final class HomebrewServiceTests: XCTestCase {
         XCTAssertEqual(requests.map(\.arguments), [
             ["upgrade", "--cask", "--greedy", "duckduckgo"],
             ["reinstall", "--cask", "--force", "duckduckgo"],
-            ["outdated", "--json=v2", "--greedy"]
+            ["outdated", "--json=v2", "--greedy"],
+            ["info", "--json=v2", "--installed"]
         ])
     }
 
@@ -775,6 +854,94 @@ final class HomebrewServiceTests: XCTestCase {
         XCTAssertTrue(failure.output.contains("unexpected verification output"))
     }
 
+    func testUpdateRecordsObservedInstalledVersion() async throws {
+        let package = package(named: "ripgrep", kind: .formula)
+        let runner = StubCommandRunner(results: [
+            CommandResult(exitCode: 0, standardOutput: "updated", standardError: ""),
+            CommandResult(exitCode: 0, standardOutput: emptyOutdatedJSON, standardError: ""),
+            CommandResult(
+                exitCode: 0,
+                standardOutput: installedJSON(formulae: [("ripgrep", "2.1")]),
+                standardError: ""
+            )
+        ])
+
+        let result = try await makeService(runner: runner).update(
+            packages: [package],
+            greedy: false
+        )
+
+        XCTAssertEqual(result.completedPackages.count, 1)
+        XCTAssertEqual(result.completedPackages.first?.previousVersion, "1.0")
+        XCTAssertEqual(result.completedPackages.first?.installedVersion, "2.1")
+        XCTAssertFalse(result.hasFailures)
+    }
+
+    func testUpdateDoesNotCompletePackageMissingFromInstalledInventory() async throws {
+        let package = package(named: "ripgrep", kind: .formula)
+        let runner = StubCommandRunner(results: [
+            CommandResult(exitCode: 0, standardOutput: "updated", standardError: ""),
+            CommandResult(exitCode: 0, standardOutput: emptyOutdatedJSON, standardError: ""),
+            CommandResult(exitCode: 0, standardOutput: installedJSON(), standardError: "")
+        ])
+
+        let result = try await makeService(runner: runner).update(
+            packages: [package],
+            greedy: false
+        )
+
+        XCTAssertTrue(result.completedPackages.isEmpty)
+        XCTAssertEqual(result.failures.map(\.operation), ["verify updates"])
+        XCTAssertTrue(
+            result.failures.first?.output.contains("could not confirm an installed version change") == true
+        )
+        XCTAssertEqual(result.verification, .completed)
+    }
+
+    func testUpdateDoesNotCompletePackageWhenInstalledVersionIsUnchanged() async throws {
+        let package = package(named: "ripgrep", kind: .formula)
+        let runner = StubCommandRunner(results: [
+            CommandResult(exitCode: 0, standardOutput: "updated", standardError: ""),
+            CommandResult(exitCode: 0, standardOutput: emptyOutdatedJSON, standardError: ""),
+            CommandResult(
+                exitCode: 0,
+                standardOutput: installedJSON(formulae: [("ripgrep", "1.0")]),
+                standardError: ""
+            )
+        ])
+
+        let result = try await makeService(runner: runner).update(
+            packages: [package],
+            greedy: false
+        )
+
+        XCTAssertTrue(result.completedPackages.isEmpty)
+        XCTAssertEqual(result.failures.map(\.operation), ["verify updates"])
+        XCTAssertEqual(result.verification, .completed)
+    }
+
+    func testUpdatePreservesCommandEvidenceWhenInstalledInventoryIsUnavailable() async throws {
+        let package = package(named: "ripgrep", kind: .formula)
+        let runner = StubCommandRunner(results: [
+            CommandResult(exitCode: 0, standardOutput: "updated", standardError: ""),
+            CommandResult(exitCode: 0, standardOutput: emptyOutdatedJSON, standardError: ""),
+            CommandResult(exitCode: 1, standardOutput: "", standardError: "info failed")
+        ])
+
+        let result = try await makeService(runner: runner).update(
+            packages: [package],
+            greedy: false
+        )
+
+        XCTAssertEqual(result.completedPackages.map(\.name), ["ripgrep"])
+        XCTAssertEqual(result.completedPackages.first?.installedVersion, "2.0")
+        guard case let .unavailable(failure) = result.verification else {
+            return XCTFail("Expected installed inventory verification to be unavailable")
+        }
+        XCTAssertEqual(failure.operation, "verify updates")
+        XCTAssertTrue(failure.output.contains("info failed"))
+    }
+
     func testUpdateUsesBundledAskpassWithoutTransportingPassword() async throws {
         let package = package(named: "firefox", kind: .cask)
         let helperURL = URL(fileURLWithPath: "/Applications/FreshBrew.app/Contents/Helpers/FreshBrewAskpass")
@@ -783,6 +950,11 @@ final class HomebrewServiceTests: XCTestCase {
             CommandResult(
                 exitCode: 0,
                 standardOutput: emptyOutdatedJSON,
+                standardError: ""
+            ),
+            CommandResult(
+                exitCode: 0,
+                standardOutput: installedJSON(casks: [("firefox", "2.0")]),
                 standardError: ""
             )
         ])
@@ -823,6 +995,13 @@ final class HomebrewServiceTests: XCTestCase {
                 exitCode: 0,
                 standardOutput: emptyOutdatedJSON,
                 standardError: ""
+            ),
+            CommandResult(
+                exitCode: 0,
+                standardOutput: installedJSON(
+                    formulae: [("ripgrep", "2.0"), ("wget", "2.0")]
+                ),
+                standardError: ""
             )
         ])
         let service = makeService(
@@ -851,7 +1030,12 @@ final class HomebrewServiceTests: XCTestCase {
                 standardOutput: "==> Upgrading bun\n",
                 standardError: ""
             ),
-            CommandResult(exitCode: 0, standardOutput: emptyOutdatedJSON, standardError: "")
+            CommandResult(exitCode: 0, standardOutput: emptyOutdatedJSON, standardError: ""),
+            CommandResult(
+                exitCode: 0,
+                standardOutput: installedJSON(formulae: [("oven-sh/bun/bun", "2.0")]),
+                standardError: ""
+            )
         ])
         let service = makeService(
             runner: runner,
@@ -886,6 +1070,13 @@ final class HomebrewServiceTests: XCTestCase {
                 exitCode: 0,
                 standardOutput: emptyOutdatedJSON,
                 standardError: ""
+            ),
+            CommandResult(
+                exitCode: 0,
+                standardOutput: installedJSON(
+                    formulae: [("ripgrep", "2.0"), ("wget", "2.0")]
+                ),
+                standardError: ""
             )
         ])
         let service = makeService(
@@ -908,7 +1099,14 @@ final class HomebrewServiceTests: XCTestCase {
                 "==> Upgrading rip", "grep\n",
                 "==> Upgrading unrelated-package\n"
             ], CommandResult(exitCode: 0, standardOutput: "", standardError: "")),
-            .result(CommandResult(exitCode: 0, standardOutput: emptyOutdatedJSON, standardError: ""))
+            .result(CommandResult(exitCode: 0, standardOutput: emptyOutdatedJSON, standardError: "")),
+            .result(CommandResult(
+                exitCode: 0,
+                standardOutput: installedJSON(
+                    formulae: [("ripgrep", "2.0"), ("wget", "2.0")]
+                ),
+                standardError: ""
+            ))
         ])
         let service = makeService(runner: runner, authorizationContext: AdminAuthorizationContext(
             askpassExecutableURL: URL(fileURLWithPath: "/tmp/FreshBrewAskpass")
@@ -930,7 +1128,14 @@ final class HomebrewServiceTests: XCTestCase {
                 "==> Installing dependency\n",
                 "==> Reinstalling Cask firefox\n"
             ], CommandResult(exitCode: 0, standardOutput: "", standardError: "")),
-            .result(CommandResult(exitCode: 0, standardOutput: emptyOutdatedJSON, standardError: ""))
+            .result(CommandResult(exitCode: 0, standardOutput: emptyOutdatedJSON, standardError: "")),
+            .result(CommandResult(
+                exitCode: 0,
+                standardOutput: installedJSON(
+                    formulae: [("ripgrep", "2.0"), ("wget", "2.0")]
+                ),
+                standardError: ""
+            ))
         ])
         let service = makeService(runner: runner, authorizationContext: AdminAuthorizationContext(
             askpassExecutableURL: URL(fileURLWithPath: "/tmp/FreshBrewAskpass")
@@ -952,7 +1157,12 @@ final class HomebrewServiceTests: XCTestCase {
                 "==> Installing Cask firefox\n",
                 "==> Upgrading stats\n"
             ], CommandResult(exitCode: 0, standardOutput: "", standardError: "")),
-            .result(CommandResult(exitCode: 0, standardOutput: emptyOutdatedJSON, standardError: ""))
+            .result(CommandResult(exitCode: 0, standardOutput: emptyOutdatedJSON, standardError: "")),
+            .result(CommandResult(
+                exitCode: 0,
+                standardOutput: installedJSON(casks: [("firefox", "2.0"), ("stats", "2.0")]),
+                standardError: ""
+            ))
         ])
         let service = makeService(runner: runner, authorizationContext: AdminAuthorizationContext(
             askpassExecutableURL: URL(fileURLWithPath: "/tmp/FreshBrewAskpass")
@@ -975,7 +1185,14 @@ final class HomebrewServiceTests: XCTestCase {
                 "==> Installing dependencies for wget: openssl@3 and ripgrep\n",
                 "==> Installing wget\n"
             ], CommandResult(exitCode: 0, standardOutput: "", standardError: "")),
-            .result(CommandResult(exitCode: 0, standardOutput: emptyOutdatedJSON, standardError: ""))
+            .result(CommandResult(exitCode: 0, standardOutput: emptyOutdatedJSON, standardError: "")),
+            .result(CommandResult(
+                exitCode: 0,
+                standardOutput: installedJSON(
+                    formulae: [("ripgrep", "2.0"), ("wget", "2.0")]
+                ),
+                standardError: ""
+            ))
         ])
         let service = makeService(runner: runner, authorizationContext: AdminAuthorizationContext(
             askpassExecutableURL: URL(fileURLWithPath: "/tmp/FreshBrewAskpass")
@@ -1084,6 +1301,11 @@ final class HomebrewServiceTests: XCTestCase {
                 exitCode: 0,
                 standardOutput: emptyOutdatedJSON,
                 standardError: ""
+            ),
+            CommandResult(
+                exitCode: 0,
+                standardOutput: installedJSON(casks: [("freshbrew", "2.0")]),
+                standardError: ""
             )
         ])
         let service = makeService(runner: runner)
@@ -1096,7 +1318,8 @@ final class HomebrewServiceTests: XCTestCase {
         let requests = await runner.recordedRequests()
         XCTAssertEqual(requests.map(\.arguments), [
             ["upgrade", "--cask", "--greedy", "--no-quit", "freshbrew"],
-            ["outdated", "--json=v2", "--greedy"]
+            ["outdated", "--json=v2", "--greedy"],
+            ["info", "--json=v2", "--installed"]
         ])
     }
 
@@ -1107,6 +1330,11 @@ final class HomebrewServiceTests: XCTestCase {
             CommandResult(
                 exitCode: 0,
                 standardOutput: emptyOutdatedJSON,
+                standardError: ""
+            ),
+            CommandResult(
+                exitCode: 0,
+                standardOutput: installedJSON(casks: [("spotify", "2.0")]),
                 standardError: ""
             )
         ])

@@ -504,32 +504,67 @@ actor HomebrewService {
                 refreshMetadata: false
             )
         } catch {
-            let completedPackages = candidates.compactMap { package -> UpdatedPackage? in
-                guard evidencedCompletedPackageIDs.contains(package.id) else { return nil }
-                return Self.updatedPackage(from: package)
-            }
-            return UpdateResult(
-                completedPackages: completedPackages,
+            return Self.unavailableVerificationResult(
+                candidates: candidates,
+                evidencedCompletedPackageIDs: evidencedCompletedPackageIDs,
                 remainingPackages: candidates.filter {
                     !evidencedCompletedPackageIDs.contains($0.id)
                 },
                 failures: commandFailures,
-                timestamp: Date(),
-                verification: .unavailable(Self.verificationFailure(from: error))
+                error: error
             )
         }
+
+        let installedPackages: [InstalledPackage]
+        do {
+            installedPackages = try await self.installedPackages()
+        } catch {
+            return Self.unavailableVerificationResult(
+                candidates: candidates,
+                evidencedCompletedPackageIDs: evidencedCompletedPackageIDs,
+                remainingPackages: remainingPackages,
+                failures: commandFailures,
+                error: error
+            )
+        }
+
         let remainingIDs = Set(remainingPackages.map(\.id))
+        let installedByID = Dictionary(
+            installedPackages.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         let completedPackages = candidates.compactMap { package -> UpdatedPackage? in
-            guard !remainingIDs.contains(package.id) else { return nil }
-            return Self.updatedPackage(from: package)
+            guard !remainingIDs.contains(package.id),
+                  let installedPackage = installedByID[package.id],
+                  Self.hasChangedInstalledVersion(
+                    package.installedVersion,
+                    observedVersion: installedPackage.installedVersion
+                  ) else { return nil }
+            return Self.updatedPackage(from: package, observed: installedPackage)
         }
 
         let unfinishedCandidateIDs = Set(candidates.map(\.id)).intersection(remainingIDs)
-        if !unfinishedCandidateIDs.isEmpty, commandFailures.isEmpty {
+        let completedIDs = Set(completedPackages.map(\.id))
+        let unconfirmedCandidateIDs = Set(candidates.map(\.id))
+            .subtracting(remainingIDs)
+            .subtracting(completedIDs)
+        if (!unfinishedCandidateIDs.isEmpty || !unconfirmedCandidateIDs.isEmpty),
+           commandFailures.isEmpty {
+            var details: [String] = []
+            if !unfinishedCandidateIDs.isEmpty {
+                details.append(
+                    "Homebrew still reports \(unfinishedCandidateIDs.count) selected package(s) as outdated."
+                )
+            }
+            if !unconfirmedCandidateIDs.isEmpty {
+                details.append(
+                    "FreshBrew could not confirm an installed version change for \(unconfirmedCandidateIDs.count) selected package(s)."
+                )
+            }
             commandFailures.append(HomebrewCommandFailure(
                 operation: "verify updates",
                 exitCode: 0,
-                output: "Homebrew still reports \(unfinishedCandidateIDs.count) selected package(s) as outdated."
+                output: details.joined(separator: "\n")
             ))
         }
 
@@ -619,12 +654,44 @@ actor HomebrewService {
                 )
             }
             let isStillOutdated = remainingPackages.contains { $0.id == package.id }
-            let completedPackages = isStillOutdated ? [] : [Self.updatedPackage(from: package)]
-            let failures = isStillOutdated ? [HomebrewCommandFailure(
-                operation: "verify recovered cask",
-                exitCode: 0,
-                output: "Homebrew still reports \(package.displayName) as outdated after recovery."
-            )] : []
+            let installedPackages: [InstalledPackage]
+            do {
+                installedPackages = try await self.installedPackages()
+            } catch {
+                return UpdateResult(
+                    completedPackages: [Self.updatedPackage(from: package)],
+                    remainingPackages: remainingPackages,
+                    failures: [],
+                    timestamp: Date(),
+                    verification: .unavailable(Self.verificationFailure(from: error))
+                )
+            }
+            let installedPackage = installedPackages.first { $0.id == package.id }
+            let didChange = installedPackage.map {
+                Self.hasChangedInstalledVersion(
+                    package.installedVersion,
+                    observedVersion: $0.installedVersion
+                )
+            } ?? false
+            let completedPackages = !isStillOutdated && didChange
+                ? installedPackage.map { [Self.updatedPackage(from: package, observed: $0)] } ?? []
+                : []
+            let failures: [HomebrewCommandFailure]
+            if isStillOutdated {
+                failures = [HomebrewCommandFailure(
+                    operation: "verify recovered cask",
+                    exitCode: 0,
+                    output: "Homebrew still reports \(package.displayName) as outdated after recovery."
+                )]
+            } else if !didChange {
+                failures = [HomebrewCommandFailure(
+                    operation: "verify recovered cask",
+                    exitCode: 0,
+                    output: "FreshBrew could not confirm an installed version change for \(package.displayName)."
+                )]
+            } else {
+                failures = []
+            }
 
             return UpdateResult(
                 completedPackages: completedPackages,
@@ -1110,6 +1177,46 @@ actor HomebrewService {
             installedVersion: package.availableVersion,
             kind: package.kind,
             homepageURL: package.homepageURL
+        )
+    }
+
+    private nonisolated static func updatedPackage(
+        from package: HomebrewPackage,
+        observed installedPackage: InstalledPackage
+    ) -> UpdatedPackage {
+        UpdatedPackage(
+            name: package.name,
+            previousVersion: package.installedVersion,
+            installedVersion: installedPackage.installedVersion,
+            kind: package.kind,
+            homepageURL: package.homepageURL ?? installedPackage.homepageURL
+        )
+    }
+
+    private nonisolated static func hasChangedInstalledVersion(
+        _ previousVersion: String,
+        observedVersion: String
+    ) -> Bool {
+        !previousVersion.components(separatedBy: ", ").contains(observedVersion)
+    }
+
+    private nonisolated static func unavailableVerificationResult(
+        candidates: [HomebrewPackage],
+        evidencedCompletedPackageIDs: Set<String>,
+        remainingPackages: [HomebrewPackage],
+        failures: [HomebrewCommandFailure],
+        error: Error
+    ) -> UpdateResult {
+        let completedPackages = candidates.compactMap { package -> UpdatedPackage? in
+            guard evidencedCompletedPackageIDs.contains(package.id) else { return nil }
+            return updatedPackage(from: package)
+        }
+        return UpdateResult(
+            completedPackages: completedPackages,
+            remainingPackages: remainingPackages,
+            failures: failures,
+            timestamp: Date(),
+            verification: .unavailable(verificationFailure(from: error))
         )
     }
 
