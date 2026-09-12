@@ -1,6 +1,19 @@
 import AppKit
 import UserNotifications
 
+enum ApplicationTerminationPolicy {
+    static func reply(
+        for activity: MenuBarModel.Activity
+    ) -> NSApplication.TerminateReply {
+        switch activity {
+        case .updating, .cleaning:
+            return .terminateCancel
+        case .idle, .checking:
+            return .terminateNow
+        }
+    }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     let model: MenuBarModel
@@ -111,6 +124,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         applicationUpdateCoordinator.stopBackgroundChecks()
     }
 
+    func applicationShouldTerminate(
+        _ sender: NSApplication
+    ) -> NSApplication.TerminateReply {
+        let reply = ApplicationTerminationPolicy.reply(for: model.activity)
+        if reply == .terminateCancel {
+            presentMutationInProgressAlert()
+        }
+        return reply
+    }
+
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
@@ -162,5 +185,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     ?? error.localizedDescription
             )
         }
+    }
+
+    private func presentMutationInProgressAlert() {
+        let alert = NSAlert()
+        alert.messageText = "Homebrew operation in progress"
+        alert.informativeText = "Wait for this operation to finish before quitting FreshBrew."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 }

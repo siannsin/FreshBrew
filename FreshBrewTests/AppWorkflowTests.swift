@@ -362,6 +362,16 @@ final class AppWorkflowTests: XCTestCase {
         XCTAssertFalse(didTerminate)
     }
 
+    func testTerminationPolicyAllowsIdleAndNonMutatingChecks() {
+        XCTAssertEqual(ApplicationTerminationPolicy.reply(for: .idle), .terminateNow)
+        XCTAssertEqual(ApplicationTerminationPolicy.reply(for: .checking), .terminateNow)
+    }
+
+    func testTerminationPolicyBlocksPackageUpdatesAndCleanup() {
+        XCTAssertEqual(ApplicationTerminationPolicy.reply(for: .updating), .terminateCancel)
+        XCTAssertEqual(ApplicationTerminationPolicy.reply(for: .cleaning), .terminateCancel)
+    }
+
     func testSingleInstanceGuardIgnoresCurrentProcess() {
         XCTAssertFalse(SingleInstanceGuard.shouldTerminateNewInstance(
             currentProcessIdentifier: 10,

@@ -626,6 +626,7 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertEqual(model.latestUpdate?.packages.map(\.name), ["completed"])
         XCTAssertNotNil(model.lastErrorMessage)
         XCTAssertEqual(model.statusMessage, "Update failed")
+        XCTAssertEqual(model.activity, .idle)
         let logEntries = try? await dependencies.errorLogStore.entries(
             referenceDate: Date(timeIntervalSince1970: 500)
         )
@@ -673,6 +674,7 @@ final class MenuBarModelTests: XCTestCase {
             )]
         )
         XCTAssertEqual(model.statusMessage, "FreshBrew is ready")
+        XCTAssertEqual(model.activity, .idle)
     }
 
     func testSuccessfulUpdateReportsOnlyNewlyDiscoveredPackages() async {
@@ -754,6 +756,7 @@ final class MenuBarModelTests: XCTestCase {
         )
         XCTAssertEqual(model.statusMessage, "Cleanup failed")
         XCTAssertNotNil(model.lastErrorMessage)
+        XCTAssertEqual(model.activity, .idle)
         let entries = try? await dependencies.errorLogStore.entries(
             referenceDate: Date(timeIntervalSince1970: 500)
         )
@@ -909,6 +912,7 @@ final class MenuBarModelTests: XCTestCase {
                 cleanupOutcome: nil
             )]
         )
+        XCTAssertEqual(model.activity, .idle)
     }
 
     func testPermissionCancellationWithoutSuccessPostsFailureNotification() async {
