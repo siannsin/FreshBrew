@@ -12,13 +12,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let notificationRouter: NotificationActionRouter
     private let windowPresenter: AppWindowPresenter
     private let packageHomepageService: PackageHomepageService
+    private let errorLogStore: HomebrewErrorLogStore
     private let relaunchService: ApplicationRelaunchService
     private var menuBarController: MenuBarController?
 
     override init() {
         let notificationService = NotificationService()
         let preferences = FreshBrewPreferences()
-        let homebrewService = HomebrewService()
+        let errorLogStore = HomebrewErrorLogStore()
+        let homebrewService = HomebrewService(errorLogStore: errorLogStore)
         let packageHomepageStore = PackageHomepageStore()
         let packageHomepageService = PackageHomepageService(
             homepageResolver: homebrewService,
@@ -28,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             homebrewService: homebrewService,
             preferences: preferences,
             packageHomepageStore: packageHomepageStore,
+            errorLogStore: errorLogStore,
             notificationService: notificationService
         )
         let updateCoordinator = UpdateActionCoordinator(model: model)
@@ -44,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.updateCoordinator = updateCoordinator
         self.applicationUpdateCoordinator = applicationUpdateCoordinator
         self.packageHomepageService = packageHomepageService
+        self.errorLogStore = errorLogStore
         self.relaunchService = relaunchService
         windowPresenter = AppWindowPresenter(
             model: model,
@@ -89,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         )
         Task { await notificationService.requestAuthorization() }
+        Task { try? await errorLogStore.pruneExpiredEntries() }
         model.startAutomaticChecks()
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
             applicationUpdateCoordinator.startBackgroundChecks()
