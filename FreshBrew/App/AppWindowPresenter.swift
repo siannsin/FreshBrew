@@ -41,6 +41,9 @@ final class AppWindowPresenter {
     }
 
     private func showPackages(tab: PackagesWindowState.Tab) -> NSWindowController {
+        packagesWindowState.prepareForPresentation(
+            isWindowVisible: windowControllers[.packages]?.window?.isVisible == true
+        )
         if packagesWindowState.selectedTab != tab {
             packagesWindowState.selectedTab = tab
         }
@@ -96,8 +99,8 @@ final class AppWindowPresenter {
         showWindow(
             id: .about,
             title: "About FreshBrew",
-            contentSize: NSSize(width: 340, height: 310),
-            minimumSize: NSSize(width: 340, height: 310),
+            contentSize: NSSize(width: 340, height: 240),
+            minimumSize: NSSize(width: 340, height: 240),
             isResizable: false,
             content: AnyView(AboutView(
                 applicationUpdateCoordinator: applicationUpdateCoordinator

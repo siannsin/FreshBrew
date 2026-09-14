@@ -71,6 +71,17 @@ final class AppWorkflowTests: XCTestCase {
         XCTAssertTrue(window.firstResponder === window)
     }
 
+    func testPackagesWindowSearchIsPreservedWhileOpenAndClearedWhenReopened() {
+        let state = PackagesWindowState()
+        state.installedSearchText = "wget"
+
+        state.prepareForPresentation(isWindowVisible: true)
+        XCTAssertEqual(state.installedSearchText, "wget")
+
+        state.prepareForPresentation(isWindowVisible: false)
+        XCTAssertTrue(state.installedSearchText.isEmpty)
+    }
+
     private func makeWindowPresenter() -> AppWindowPresenter {
         let defaults = InMemoryPreferencesStore()
         let preferences = FreshBrewPreferences(defaults: defaults)

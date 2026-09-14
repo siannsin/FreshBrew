@@ -3,9 +3,9 @@ import SwiftUI
 struct InstalledPackagesView: View {
     @ObservedObject var model: MenuBarModel
     let isActive: Bool
+    @Binding var searchText: String
     let openPackageHomepage: (String, String, HomebrewPackageKind, URL?) -> Void
 
-    @State private var searchText = ""
     @State private var formulaeExpanded = true
     @State private var casksExpanded = true
     @FocusState private var isSearchFocused: Bool

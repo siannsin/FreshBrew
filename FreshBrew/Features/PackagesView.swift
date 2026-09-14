@@ -30,6 +30,13 @@ final class PackagesWindowState: ObservableObject {
     }
 
     @Published var selectedTab: Tab = .installed
+    @Published var installedSearchText = ""
+
+    func prepareForPresentation(isWindowVisible: Bool) {
+        if !isWindowVisible {
+            installedSearchText = ""
+        }
+    }
 }
 
 struct PackagesView: View {
@@ -49,6 +56,7 @@ struct PackagesView: View {
             InstalledPackagesView(
                 model: model,
                 isActive: windowState.selectedTab == .installed,
+                searchText: $windowState.installedSearchText,
                 openPackageHomepage: openPackageHomepage
             )
                 .tabItem { Text(PackagesWindowState.Tab.installed.title) }

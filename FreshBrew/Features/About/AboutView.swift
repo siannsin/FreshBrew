@@ -5,17 +5,12 @@ struct AboutView: View {
     @ObservedObject var applicationUpdateCoordinator: ApplicationUpdateCoordinator
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 16) {
             identityContent
-
-            Divider()
-                .frame(width: 260)
-                .padding(.vertical, 12)
-
             updateContent
         }
         .padding(20)
-        .frame(width: 340, height: 310)
+        .frame(width: 340, height: 240)
     }
 
     private var identityContent: some View {
@@ -33,21 +28,15 @@ struct AboutView: View {
                 Text("Version \(AppIdentity.marketingVersion)")
                     .foregroundStyle(.secondary)
             }
-
-            Text("A menu bar utility for Homebrew updates.")
-                .multilineTextAlignment(.center)
         }
     }
 
     private var updateContent: some View {
         VStack(spacing: 10) {
-            updateStatus
-                .frame(maxWidth: .infinity)
-
             updateAction
 
             Toggle(
-                "Check automatically",
+                "Automatic Checks",
                 isOn: $applicationUpdateCoordinator.checksEnabled
             )
             .toggleStyle(.checkbox)
@@ -55,53 +44,58 @@ struct AboutView: View {
         }
     }
 
-    @ViewBuilder
-    private var updateStatus: some View {
-        switch applicationUpdateCoordinator.manualState {
-        case .idle:
-            Text("Not checked yet")
-                .foregroundStyle(.secondary)
-        case .checking:
-            HStack(spacing: 8) {
-                ProgressView()
-                    .controlSize(.small)
-                Text("Checking for updates…")
-                    .foregroundStyle(.secondary)
-            }
-        case .current:
-            Text("FreshBrew is up to date.")
-                .foregroundStyle(.secondary)
-        case let .updateAvailable(release):
-            Text("FreshBrew \(release.displayVersion) is available.")
-                .foregroundStyle(.secondary)
-        case let .failed(message):
-            Text(message)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-        }
-    }
-
-    @ViewBuilder
     private var updateAction: some View {
-        switch applicationUpdateCoordinator.manualState {
-        case .updateAvailable:
-            Button("View Release") {
-                _ = applicationUpdateCoordinator.openAvailableRelease()
-            }
-        case .idle, .checking:
-            checkButton(title: "Check for Updates")
-        case .current:
-            checkButton(title: "Check Again")
-        case .failed:
-            checkButton(title: "Try Again")
-        }
-    }
-
-    private func checkButton(title: String) -> some View {
-        Button(title) {
-            Task { await applicationUpdateCoordinator.checkManually() }
+        Button(action: performUpdateAction) {
+            updateActionLabel
+                .frame(width: 120)
         }
         .disabled(applicationUpdateCoordinator.isChecking)
+        .help(updateActionHelp)
+    }
+
+    @ViewBuilder
+    private var updateActionLabel: some View {
+        switch applicationUpdateCoordinator.manualState {
+        case .idle:
+            Text("Check Updates")
+        case .checking:
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Checking…")
+            }
+        case .current:
+            Label("Check Again", systemImage: "checkmark")
+        case let .updateAvailable(release):
+            Text("\(release.displayVersion) available")
+        case .failed:
+            Label("Try Again", systemImage: "exclamationmark.triangle")
+        }
+    }
+
+    private var updateActionHelp: String {
+        switch applicationUpdateCoordinator.manualState {
+        case .idle:
+            "Check for a newer FreshBrew release."
+        case .checking:
+            "Checking for a newer FreshBrew release."
+        case .current:
+            "FreshBrew is up to date."
+        case let .updateAvailable(release):
+            "View FreshBrew \(release.displayVersion) on GitHub."
+        case let .failed(message):
+            message
+        }
+    }
+
+    private func performUpdateAction() {
+        switch applicationUpdateCoordinator.manualState {
+        case .idle, .current, .failed:
+            Task { await applicationUpdateCoordinator.checkManually() }
+        case .updateAvailable:
+            _ = applicationUpdateCoordinator.openAvailableRelease()
+        case .checking:
+            break
+        }
     }
 }
