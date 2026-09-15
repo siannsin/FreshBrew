@@ -199,6 +199,20 @@ final class NotificationServiceTests: XCTestCase {
         )
     }
 
+    func testUpdateResultContentDescribesRequiredXcodeSetup() {
+        let content = NotificationService.updateResultContent(
+            updatedCount: 0,
+            remainingUpdateCount: 2,
+            hadFailures: true,
+            newlyAvailableCount: 0,
+            cleanupOutcome: nil,
+            verificationUnavailable: true,
+            xcodeLicenseRequired: true
+        )
+
+        XCTAssertEqual(content.body, "Update failed · Complete Xcode setup and try again")
+    }
+
     func testUpdateResultContentIncludesRestartActionAfterSelfUpdate() {
         let content = NotificationService.updateResultContent(
             updatedCount: 4,

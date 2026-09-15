@@ -19,6 +19,7 @@ protocol NotificationServing: Sendable {
         newlyAvailableCount: Int,
         cleanupOutcome: UpdateCleanupOutcome?,
         verificationUnavailable: Bool,
+        xcodeLicenseRequired: Bool,
         restartRequired: Bool
     ) async
 }
@@ -95,6 +96,7 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
         newlyAvailableCount: Int,
         cleanupOutcome: UpdateCleanupOutcome?,
         verificationUnavailable: Bool,
+        xcodeLicenseRequired: Bool,
         restartRequired: Bool
     ) async {
         guard updatedCount > 0 || hadFailures else { return }
@@ -110,6 +112,7 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
                 newlyAvailableCount: newlyAvailableCount,
                 cleanupOutcome: cleanupOutcome,
                 verificationUnavailable: verificationUnavailable,
+                xcodeLicenseRequired: xcodeLicenseRequired,
                 restartRequired: restartRequired
             ),
             trigger: nil
@@ -189,6 +192,7 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
         newlyAvailableCount: Int,
         cleanupOutcome: UpdateCleanupOutcome?,
         verificationUnavailable: Bool = false,
+        xcodeLicenseRequired: Bool = false,
         restartRequired: Bool = false
     ) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
@@ -200,7 +204,9 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
             details.append("Update failed")
         }
 
-        if verificationUnavailable {
+        if xcodeLicenseRequired {
+            details.append("Complete Xcode setup and try again")
+        } else if verificationUnavailable {
             details.append("Remaining updates couldn’t be verified")
         } else if hadFailures {
             if remainingUpdateCount == 1 {
@@ -299,6 +305,7 @@ actor NoopNotificationService: NotificationServing {
         newlyAvailableCount: Int,
         cleanupOutcome: UpdateCleanupOutcome?,
         verificationUnavailable: Bool,
+        xcodeLicenseRequired: Bool,
         restartRequired: Bool
     ) async {}
 }

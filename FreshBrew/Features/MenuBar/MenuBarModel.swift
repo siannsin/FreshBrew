@@ -109,6 +109,7 @@ final class MenuBarModel: ObservableObject {
     private var pendingUpdateKnownPackageIDs: Set<String>?
     private var pendingCompletedPackages: [UpdatedPackage] = []
     private var pendingVerificationUnavailable = false
+    private var pendingXcodeLicenseRequired = false
     private var pendingRestartRequired = false
 
     init(
@@ -481,6 +482,7 @@ final class MenuBarModel: ObservableObject {
             await finalizePendingUpdateWorkflow(hadFailures: combinedResult.hasFailures)
             return combinedResult
         } catch {
+            pendingXcodeLicenseRequired = errorIndicatesXcodeLicenseRequirement(error)
             await handleFailure(
                 error,
                 operation: "update packages",
@@ -499,6 +501,7 @@ final class MenuBarModel: ObservableObject {
         pendingUpdateKnownPackageIDs = nil
         pendingCompletedPackages = []
         pendingVerificationUnavailable = false
+        pendingXcodeLicenseRequired = false
         pendingRestartRequired = false
     }
 
@@ -531,6 +534,13 @@ final class MenuBarModel: ObservableObject {
     }
 
     private func applyUpdateResult(_ result: UpdateResult) async {
+        let failures = result.failures + [result.verification.failure].compactMap { $0 }
+        if failures.contains(where: {
+            HomebrewError.outputIndicatesXcodeLicenseRequirement($0.output)
+        }) {
+            pendingXcodeLicenseRequired = true
+        }
+
         if result.verification.failure == nil {
             availablePackages = attachHomepageURLs(to: result.remainingPackages)
         } else {
@@ -664,6 +674,7 @@ final class MenuBarModel: ObservableObject {
         let completedPackages = pendingCompletedPackages
         let knownPackageIDs = pendingUpdateKnownPackageIDs ?? []
         let verificationUnavailable = pendingVerificationUnavailable
+        let xcodeLicenseRequired = pendingXcodeLicenseRequired
         let restartRequired = pendingRestartRequired
         let newlyAvailableCount = verificationUnavailable ? 0 : visiblePackages.filter {
             !knownPackageIDs.contains($0.id)
@@ -709,6 +720,7 @@ final class MenuBarModel: ObservableObject {
             newlyAvailableCount: newlyAvailableCount,
             cleanupOutcome: cleanupOutcome,
             verificationUnavailable: verificationUnavailable,
+            xcodeLicenseRequired: xcodeLicenseRequired,
             restartRequired: restartRequired
         )
         resetPendingUpdateWorkflow()
@@ -753,6 +765,11 @@ final class MenuBarModel: ObservableObject {
                 .filter { !$0.isEmpty }
                 .joined(separator: "\n")
         }
+    }
+
+    private func errorIndicatesXcodeLicenseRequirement(_ error: Error) -> Bool {
+        guard let homebrewError = error as? HomebrewError else { return false }
+        return homebrewError.indicatesXcodeLicenseRequirement
     }
 
     private static func failureStatus(

@@ -44,6 +44,19 @@ extension HomebrewError: LocalizedError {
 }
 
 extension HomebrewError {
+    var indicatesXcodeLicenseRequirement: Bool {
+        switch self {
+        case let .commandFailed(failure):
+            return Self.outputIndicatesXcodeLicenseRequirement(failure.output)
+        case let .permissionRequired(output),
+             let .existingApplicationConflict(_, output),
+             let .timedOut(_, _, output):
+            return Self.outputIndicatesXcodeLicenseRequirement(output)
+        default:
+            return false
+        }
+    }
+
     var indicatesNetworkFailure: Bool {
         switch self {
         case .networkUnavailable:
@@ -71,6 +84,30 @@ extension HomebrewError {
             "name or service not known"
         ]
         return networkMarkers.contains(where: normalizedOutput.contains)
+    }
+
+    static func outputIndicatesXcodeLicenseRequirement(_ output: String) -> Bool {
+        let normalizedOutput = output.lowercased()
+        let commandPattern = #"(?:sudo\s+)?(?:\S*/)?xcodebuild\s+-license\s+accept\b"#
+        if normalizedOutput.range(of: commandPattern, options: .regularExpression) != nil {
+            return true
+        }
+
+        guard normalizedOutput.contains("xcode"),
+              normalizedOutput.contains("license") else {
+            return false
+        }
+        let requirementMarkers = [
+            "not agreed",
+            "not accepted",
+            "has not been accepted",
+            "must accept",
+            "must be accepted",
+            "must agree",
+            "please accept",
+            "requires acceptance"
+        ]
+        return requirementMarkers.contains(where: normalizedOutput.contains)
     }
 
     static func classified(

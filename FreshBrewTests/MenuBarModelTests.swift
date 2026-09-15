@@ -868,6 +868,53 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertEqual(logEntries?.first?.output, "verification timed out")
     }
 
+    func testXcodeLicenseFailureIsIncludedInUpdateNotification() async {
+        let package = makePackage(named: "stats", kind: .cask)
+        let failure = HomebrewCommandFailure(
+            operation: "upgrade casks",
+            exitCode: 1,
+            output: """
+            Error: You have not agreed to the Xcode license. Please run:
+              sudo xcodebuild -license accept
+            """
+        )
+        let service = FakeHomebrewService(
+            checkResponses: [.packages([package])],
+            updateResult: UpdateResult(
+                completedPackages: [],
+                remainingPackages: [package],
+                failures: [failure],
+                timestamp: Date(timeIntervalSince1970: 500),
+                verification: .unavailable(failure)
+            )
+        )
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+
+        _ = await model.checkUpdates()
+        _ = await model.updateAll()
+
+        let completions = await notifications.completions()
+        XCTAssertEqual(
+            completions,
+            [UpdateCompletion(
+                updatedCount: 0,
+                remainingUpdateCount: 1,
+                hadFailures: true,
+                newlyAvailableCount: 0,
+                cleanupOutcome: nil,
+                verificationUnavailable: true,
+                xcodeLicenseRequired: true
+            )]
+        )
+    }
+
     func testPermissionFailureFinalizesPartialSuccessInOneBatch() async {
         let formula = makePackage(named: "ripgrep", kind: .formula)
         let cask = makePackage(named: "stats", kind: .cask)
@@ -2017,6 +2064,7 @@ private struct UpdateCompletion: Equatable, Sendable {
     let newlyAvailableCount: Int
     let cleanupOutcome: UpdateCleanupOutcome?
     let verificationUnavailable: Bool
+    let xcodeLicenseRequired: Bool
     let restartRequired: Bool
 
     init(
@@ -2026,6 +2074,7 @@ private struct UpdateCompletion: Equatable, Sendable {
         newlyAvailableCount: Int,
         cleanupOutcome: UpdateCleanupOutcome?,
         verificationUnavailable: Bool = false,
+        xcodeLicenseRequired: Bool = false,
         restartRequired: Bool = false
     ) {
         self.updatedCount = updatedCount
@@ -2034,6 +2083,7 @@ private struct UpdateCompletion: Equatable, Sendable {
         self.newlyAvailableCount = newlyAvailableCount
         self.cleanupOutcome = cleanupOutcome
         self.verificationUnavailable = verificationUnavailable
+        self.xcodeLicenseRequired = xcodeLicenseRequired
         self.restartRequired = restartRequired
     }
 }
@@ -2071,6 +2121,7 @@ private actor FakeNotificationService: NotificationServing {
         newlyAvailableCount: Int,
         cleanupOutcome: UpdateCleanupOutcome?,
         verificationUnavailable: Bool,
+        xcodeLicenseRequired: Bool,
         restartRequired: Bool
     ) async {
         guard updatedCount > 0 || hadFailures else { return }
@@ -2081,6 +2132,7 @@ private actor FakeNotificationService: NotificationServing {
             newlyAvailableCount: newlyAvailableCount,
             cleanupOutcome: cleanupOutcome,
             verificationUnavailable: verificationUnavailable,
+            xcodeLicenseRequired: xcodeLicenseRequired,
             restartRequired: restartRequired
         ))
     }

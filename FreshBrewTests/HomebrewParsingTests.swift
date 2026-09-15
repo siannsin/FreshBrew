@@ -192,6 +192,27 @@ final class HomebrewParsingTests: XCTestCase {
         )
     }
 
+    func testXcodeLicenseRequirementDetectionSupportsCommandAndWordingVariants() {
+        let outputs = [
+            "Please run: sudo xcodebuild -license accept",
+            "Run /usr/bin/xcodebuild   -license   accept to continue.",
+            "The Xcode license agreement must be accepted before continuing."
+        ]
+
+        for output in outputs {
+            XCTAssertTrue(
+                HomebrewError.outputIndicatesXcodeLicenseRequirement(output),
+                output
+            )
+        }
+        XCTAssertFalse(HomebrewError.outputIndicatesXcodeLicenseRequirement(
+            "Xcode completed the package operation."
+        ))
+        XCTAssertFalse(HomebrewError.outputIndicatesXcodeLicenseRequirement(
+            "The Xcode license agreement is already accepted."
+        ))
+    }
+
     private func package(named name: String, kind: HomebrewPackageKind) -> HomebrewPackage {
         HomebrewPackage(
             name: name,
