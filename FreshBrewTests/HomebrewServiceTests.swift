@@ -1280,7 +1280,9 @@ final class HomebrewServiceTests: XCTestCase {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let applicationURL = temporaryDirectory.appendingPathComponent("Stats.app", isDirectory: true)
-        let recoveryURL = temporaryDirectory.appendingPathComponent("FreshBrew/CaskRecovery", isDirectory: true)
+        let recoveryURL = temporaryDirectory
+            .appendingPathComponent(AppIdentity.bundleName, isDirectory: true)
+            .appendingPathComponent("CaskRecovery", isDirectory: true)
         try FileManager.default.createDirectory(at: applicationURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
 

@@ -35,7 +35,7 @@ private struct EmptyInventoryCommandRunner: CommandRunning {
 @MainActor
 final class AppWorkflowTests: XCTestCase {
     func testPackagesWindowDoesNotAutomaticallyFocusSearchOnOpening() async throws {
-        let autosaveKey = "NSWindow Frame FreshBrew.packages"
+        let autosaveKey = "NSWindow Frame \(AppIdentity.bundleName).packages"
         let savedFrame = UserDefaults.standard.object(forKey: autosaveKey)
         defer { UserDefaults.standard.set(savedFrame, forKey: autosaveKey) }
         let presenter = makeWindowPresenter()

@@ -5,7 +5,7 @@ final class NotificationServiceTests: XCTestCase {
     func testUpdatesContentUsesCountAndActionCategory() {
         let content = NotificationService.updatesContent(count: 2)
 
-        XCTAssertEqual(content.title, "FreshBrew")
+        XCTAssertEqual(content.title, AppIdentity.displayName)
         XCTAssertEqual(content.body, "2 Homebrew updates available")
         XCTAssertEqual(
             content.categoryIdentifier,
@@ -16,7 +16,7 @@ final class NotificationServiceTests: XCTestCase {
     func testCheckFailureContentIncludesMessage() {
         let content = NotificationService.checkFailureContent(message: "Network unavailable")
 
-        XCTAssertEqual(content.title, "FreshBrew check failed")
+        XCTAssertEqual(content.title, "\(AppIdentity.displayName) check failed")
         XCTAssertEqual(content.body, "Network unavailable")
     }
 
@@ -35,9 +35,9 @@ final class NotificationServiceTests: XCTestCase {
         let cleanupContent = NotificationService.cleanupResultContent(cleanup)
         let deepCleanupContent = NotificationService.cleanupResultContent(deepCleanup)
 
-        XCTAssertEqual(cleanupContent.title, "FreshBrew")
+        XCTAssertEqual(cleanupContent.title, AppIdentity.displayName)
         XCTAssertEqual(cleanupContent.body, "Cleanup completed · 1.3GB freed")
-        XCTAssertEqual(deepCleanupContent.title, "FreshBrew")
+        XCTAssertEqual(deepCleanupContent.title, AppIdentity.displayName)
         XCTAssertEqual(deepCleanupContent.body, "Deep Cleanup completed · 3.5GB freed")
     }
 
@@ -50,7 +50,7 @@ final class NotificationServiceTests: XCTestCase {
 
         let content = NotificationService.cleanupResultContent(result)
 
-        XCTAssertEqual(content.title, "FreshBrew")
+        XCTAssertEqual(content.title, AppIdentity.displayName)
         XCTAssertEqual(content.body, "Cleanup completed")
     }
 
@@ -64,12 +64,12 @@ final class NotificationServiceTests: XCTestCase {
             message: "Deep Cleanup timed out after 5 minutes."
         )
 
-        XCTAssertEqual(cleanupContent.title, "FreshBrew")
+        XCTAssertEqual(cleanupContent.title, AppIdentity.displayName)
         XCTAssertEqual(
             cleanupContent.body,
             "Cleanup failed · Network unavailable. Check your connection and try again."
         )
-        XCTAssertEqual(deepCleanupContent.title, "FreshBrew")
+        XCTAssertEqual(deepCleanupContent.title, AppIdentity.displayName)
         XCTAssertEqual(
             deepCleanupContent.body,
             "Deep Cleanup timed out after 5 minutes."
@@ -85,7 +85,7 @@ final class NotificationServiceTests: XCTestCase {
             releasePageURL: url
         )
 
-        XCTAssertEqual(content.title, "FreshBrew")
+        XCTAssertEqual(content.title, AppIdentity.displayName)
         XCTAssertEqual(content.body, "Version 0.2.0 is available")
         XCTAssertEqual(
             content.categoryIdentifier,
@@ -225,7 +225,7 @@ final class NotificationServiceTests: XCTestCase {
 
         XCTAssertEqual(
             content.body,
-            "4 packages updated · 1.3GB freed · Restart FreshBrew to finish"
+            "4 packages updated · 1.3GB freed · Restart \(AppIdentity.displayName) to finish"
         )
         XCTAssertEqual(
             content.categoryIdentifier,

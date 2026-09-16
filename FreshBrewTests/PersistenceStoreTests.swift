@@ -484,7 +484,7 @@ final class PersistenceStoreTests: XCTestCase {
     func testDefaultErrorLogUsesFreshBrewApplicationSupportDirectory() {
         XCTAssertTrue(
             HomebrewErrorLogStore.defaultFileURL().path.hasSuffix(
-                "Application Support/FreshBrew/homebrew-errors.json"
+                "Application Support/\(AppIdentity.bundleName)/homebrew-errors.json"
             )
         )
     }

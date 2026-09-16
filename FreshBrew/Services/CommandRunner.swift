@@ -102,7 +102,9 @@ private final class CommandExecution: @unchecked Sendable {
     private let standardError = LockedDataBuffer()
     private let lock = NSLock()
     private let pipeReadLock = NSLock()
-    private let timerQueue = DispatchQueue(label: "net.siann.freshbrew.command-timeout")
+    private let timerQueue = DispatchQueue(
+        label: "\(AppIdentity.bundleIdentifier).command-timeout"
+    )
 
     private var continuation: CheckedContinuation<CommandResult, Error>?
     private var timer: DispatchSourceTimer?

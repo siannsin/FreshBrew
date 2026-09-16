@@ -36,7 +36,7 @@ enum ApplicationUpdateError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .invalidInstalledVersion:
-            return "The installed FreshBrew version could not be read."
+            return "The installed \(AppIdentity.displayName) version could not be read."
         case .invalidResponse, .invalidRelease:
             return "GitHub returned an invalid release response."
         case .requestFailed:
@@ -84,7 +84,7 @@ struct GitHubApplicationUpdateService: ApplicationUpdateChecking {
 
         var request = URLRequest(url: Self.latestReleaseURL)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue("FreshBrew", forHTTPHeaderField: "User-Agent")
+        request.setValue(AppIdentity.bundleName, forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await httpClient.data(for: request)
         guard response.statusCode == 200 else {

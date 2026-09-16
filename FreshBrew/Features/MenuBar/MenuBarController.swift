@@ -103,7 +103,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
         if model.restartRequired {
             addActionItem(
-                "Restart FreshBrew",
+                "Restart \(AppIdentity.displayName)",
                 action: #selector(restartFreshBrew),
                 isEnabled: !model.isRunning
             )
@@ -141,8 +141,8 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
         addSettingsMenu()
         addMaintenanceMenu()
-        addActionItem("About FreshBrew", action: #selector(showAbout))
-        addActionItem("Quit FreshBrew", action: #selector(quit))
+        addActionItem("About \(AppIdentity.displayName)", action: #selector(showAbout))
+        addActionItem("Quit \(AppIdentity.displayName)", action: #selector(quit))
     }
 
     private var headerTitle: String {
@@ -155,7 +155,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         if let lastCheckDate = model.lastSuccessfulHomebrewCheckDate {
             return "Last checked: \(lastCheckDate.formatted(date: .omitted, time: .shortened))"
         }
-        return "FreshBrew is ready"
+        return "\(AppIdentity.displayName) is ready"
     }
 
     private func addAvailableUpdatesMenu() {

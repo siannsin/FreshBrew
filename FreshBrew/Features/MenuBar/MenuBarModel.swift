@@ -27,7 +27,7 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var updateHistory: [UpdateHistoryEntry]
     @Published private(set) var activity: Activity = .idle
     @Published private(set) var progress: UpdateProgress?
-    @Published private(set) var statusMessage = "FreshBrew is ready"
+    @Published private(set) var statusMessage = "\(AppIdentity.displayName) is ready"
     @Published private(set) var lastSuccessfulHomebrewCheckDate: Date?
     @Published private(set) var lastErrorMessage: String?
     @Published private(set) var packageHomepageErrorMessage: String?
@@ -44,7 +44,7 @@ final class MenuBarModel: ObservableObject {
             lastSuccessfulHomebrewCheckDate = nil
             preferences.lastSuccessfulHomebrewCheckDate = nil
             packageHomepageErrorMessage = nil
-            statusMessage = "FreshBrew is ready"
+            statusMessage = "\(AppIdentity.displayName) is ready"
         }
     }
 
@@ -201,12 +201,12 @@ final class MenuBarModel: ObservableObject {
             packageHomepageStore.save(homepageURLs)
             availablePackages = attachHomepageURLs(to: packages)
             sessionSkippedPackageIDs = []
-            statusMessage = "FreshBrew is ready"
+            statusMessage = "\(AppIdentity.displayName) is ready"
             await notificationService.postUpdatesAvailable(count: visiblePackages.count)
             return true
         } catch {
             if error is CancellationError {
-                statusMessage = "FreshBrew is ready"
+                statusMessage = "\(AppIdentity.displayName) is ready"
                 return false
             }
             await handleFailure(
@@ -283,7 +283,7 @@ final class MenuBarModel: ObservableObject {
 
         do {
             let result = try await homebrewService.cleanup(deep: deep)
-            statusMessage = "FreshBrew is ready"
+            statusMessage = "\(AppIdentity.displayName) is ready"
             if result.freedSpaceDescription != nil {
                 await notificationService.postCleanupResult(result)
             }
@@ -576,7 +576,7 @@ final class MenuBarModel: ObservableObject {
     private func applyUpdateFailureStatus(_ result: UpdateResult) {
         if result.verification.failure != nil {
             statusMessage = "Verification failed"
-            lastErrorMessage = "FreshBrew could not verify the remaining updates."
+            lastErrorMessage = "\(AppIdentity.displayName) could not verify the remaining updates."
             return
         }
 
@@ -696,7 +696,7 @@ final class MenuBarModel: ObservableObject {
                 cleanupOutcome = .completed(
                     freedSpace: cleanupResult.freedSpaceDescription
                 )
-                statusMessage = "FreshBrew is ready"
+                statusMessage = "\(AppIdentity.displayName) is ready"
             } catch {
                 cleanupOutcome = .failed
                 await handleFailure(
@@ -710,7 +710,7 @@ final class MenuBarModel: ObservableObject {
                 )
             }
         } else if !hadFailures {
-            statusMessage = "FreshBrew is ready"
+            statusMessage = "\(AppIdentity.displayName) is ready"
         }
 
         await notificationService.postUpdateResult(
@@ -760,7 +760,7 @@ final class MenuBarModel: ObservableObject {
         case .networkUnavailable:
             return "No network connection is available."
         case let .timedOut(operation, seconds, output):
-            let timeoutDescription = "FreshBrew stopped \(operation) after \(Int(seconds)) seconds."
+            let timeoutDescription = "\(AppIdentity.displayName) stopped \(operation) after \(Int(seconds)) seconds."
             return [output, timeoutDescription]
                 .filter { !$0.isEmpty }
                 .joined(separator: "\n")

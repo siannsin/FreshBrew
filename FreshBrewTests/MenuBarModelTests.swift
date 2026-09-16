@@ -432,7 +432,7 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertEqual(cleanupDeepValues, [false])
         XCTAssertEqual(cleanupResults, [cleanupResult])
         XCTAssertTrue(cleanupFailures.isEmpty)
-        XCTAssertEqual(model.statusMessage, "FreshBrew is ready")
+        XCTAssertEqual(model.statusMessage, "\(AppIdentity.displayName) is ready")
         XCTAssertEqual(model.activity, .idle)
     }
 
@@ -497,7 +497,7 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertEqual(entries?.first?.operation, "cleanup")
         XCTAssertEqual(
             entries?.first?.output,
-            "cleanup command timed out\nFreshBrew stopped cleanup after 300 seconds."
+            "cleanup command timed out\n\(AppIdentity.displayName) stopped cleanup after 300 seconds."
         )
         XCTAssertEqual(model.activity, .idle)
     }
@@ -547,7 +547,7 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertNil(model.lastSuccessfulHomebrewCheckDate)
         XCTAssertNil(dependencies.preferences.lastSuccessfulHomebrewCheckDate)
         XCTAssertTrue(model.shouldRunHomebrewCheck())
-        XCTAssertEqual(model.statusMessage, "FreshBrew is ready")
+        XCTAssertEqual(model.statusMessage, "\(AppIdentity.displayName) is ready")
     }
 
     func testRememberedSkipPersistsAndFiltersVisiblePackages() async {
@@ -672,7 +672,7 @@ final class MenuBarModelTests: XCTestCase {
                 cleanupOutcome: .completed(freedSpace: "42MB")
             )]
         )
-        XCTAssertEqual(model.statusMessage, "FreshBrew is ready")
+        XCTAssertEqual(model.statusMessage, "\(AppIdentity.displayName) is ready")
         XCTAssertEqual(model.activity, .idle)
     }
 
@@ -844,7 +844,7 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertEqual(model.statusMessage, "Verification failed")
         XCTAssertEqual(
             model.lastErrorMessage,
-            "FreshBrew could not verify the remaining updates."
+            "\(AppIdentity.displayName) could not verify the remaining updates."
         )
         let cleanupDeepValues = await service.recordedCleanupDeepValues()
         let completionValues = await notifications.completions()

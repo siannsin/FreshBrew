@@ -98,7 +98,7 @@ final class AppWindowPresenter {
     func showAbout() -> NSWindowController {
         showWindow(
             id: .about,
-            title: "About FreshBrew",
+            title: "About \(AppIdentity.displayName)",
             contentSize: NSSize(width: 340, height: 240),
             minimumSize: NSSize(width: 340, height: 240),
             isResizable: false,
@@ -152,7 +152,7 @@ final class AppWindowPresenter {
 
             controller = NSWindowController(window: window)
             if isResizable {
-                let autosaveName = "FreshBrew.\(id.rawValue)"
+                let autosaveName = "\(AppIdentity.bundleName).\(id.rawValue)"
                 controller.windowFrameAutosaveName = autosaveName
                 controller.shouldCascadeWindows = false
                 window.setFrameUsingName(autosaveName)
@@ -253,7 +253,9 @@ private final class PackagesHostingController: NSHostingController<AnyView>, NSM
             menu.addItem(item)
         }
         overflowItem.submenu = menu
-        overflowItem.identifier = NSUserInterfaceItemIdentifier("FreshBrew.packageTabsOverflow")
+        overflowItem.identifier = NSUserInterfaceItemIdentifier(
+            "\(AppIdentity.bundleIdentifier).packageTabsOverflow"
+        )
         // Flatten only our entry while AppKit constructs the overflow menu.
         overflowMenuObservation = NotificationCenter.default.publisher(for: NSMenu.didAddItemNotification)
             .sink { [weak self] notification in

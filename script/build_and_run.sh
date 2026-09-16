@@ -6,7 +6,6 @@ unset TZ
 
 MODE="${1:-run}"
 APP_NAME="FreshBrew"
-BUNDLE_ID="net.siann.freshbrew"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DERIVED_DATA="${FRESHBREW_DERIVED_DATA:-/private/tmp/freshbrew-derived-data}"
@@ -21,6 +20,8 @@ xcodebuild build \
   -configuration Debug \
   -destination 'platform=macOS' \
   -derivedDataPath "$DERIVED_DATA"
+
+BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_BUNDLE/Contents/Info.plist")"
 
 open_app() {
   /usr/bin/open -n "$APP_BUNDLE"

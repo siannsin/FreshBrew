@@ -6,7 +6,7 @@ enum ApplicationRelaunchError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidApplicationBundle:
-            "FreshBrew could not prepare a restart from its current location."
+            "\(AppIdentity.displayName) could not prepare a restart from its current location."
         }
     }
 }
@@ -57,7 +57,7 @@ final class ApplicationRelaunchService {
         process.arguments = [
             "-c",
             "sleep 1; exec /usr/bin/open -n \"$1\"",
-            "freshbrew-relaunch",
+            "\(AppIdentity.bundleIdentifier).relaunch",
             bundleURL.path
         ]
         try process.run()

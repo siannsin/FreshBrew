@@ -15,7 +15,7 @@ struct SystemNetworkAvailabilityChecker: NetworkAvailabilityChecking {
 
 private final class NetworkPathProbe: @unchecked Sendable {
     private let monitor = NWPathMonitor()
-    private let queue = DispatchQueue(label: "net.siann.freshbrew.network-path")
+    private let queue = DispatchQueue(label: "\(AppIdentity.bundleIdentifier).network-path")
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Bool, Never>?
 
@@ -235,7 +235,7 @@ actor HomebrewService {
         do {
             return try Self.parseInstalledPackagesJSON(result.standardOutput)
         } catch {
-            let decodingDetail = "FreshBrew could not decode Homebrew's installed-package JSON: \(error)"
+            let decodingDetail = "\(AppIdentity.displayName) could not decode Homebrew's installed-package JSON: \(error)"
             throw HomebrewError.commandFailed(HomebrewCommandFailure(
                 operation: "decode installed packages",
                 exitCode: result.exitCode,
@@ -279,7 +279,7 @@ actor HomebrewService {
         do {
             return try Self.parseOutdatedJSON(outdatedResult.standardOutput)
         } catch {
-            let decodingDetail = "FreshBrew could not decode Homebrew's outdated JSON: \(error)"
+            let decodingDetail = "\(AppIdentity.displayName) could not decode Homebrew's outdated JSON: \(error)"
             throw HomebrewError.commandFailed(HomebrewCommandFailure(
                 operation: "decode outdated packages",
                 exitCode: outdatedResult.exitCode,
@@ -355,9 +355,9 @@ actor HomebrewService {
     ) async throws -> UpdateResult {
         guard package.isFreshBrewCask else {
             throw HomebrewError.commandFailed(HomebrewCommandFailure(
-                operation: "update FreshBrew",
+                operation: "update \(AppIdentity.displayName)",
                 exitCode: -1,
-                output: "FreshBrew self-update requires cask:freshbrew."
+                output: "\(AppIdentity.displayName) self-update requires cask:freshbrew."
             ))
         }
         return try await update(
@@ -558,7 +558,7 @@ actor HomebrewService {
             }
             if !unconfirmedCandidateIDs.isEmpty {
                 details.append(
-                    "FreshBrew could not confirm an installed version change for \(unconfirmedCandidateIDs.count) selected package(s)."
+                    "\(AppIdentity.displayName) could not confirm an installed version change for \(unconfirmedCandidateIDs.count) selected package(s)."
                 )
             }
             commandFailures.append(HomebrewCommandFailure(
@@ -687,7 +687,7 @@ actor HomebrewService {
                 failures = [HomebrewCommandFailure(
                     operation: "verify recovered cask",
                     exitCode: 0,
-                    output: "FreshBrew could not confirm an installed version change for \(package.displayName)."
+                    output: "\(AppIdentity.displayName) could not confirm an installed version change for \(package.displayName)."
                 )]
             } else {
                 failures = []
@@ -1090,7 +1090,7 @@ actor HomebrewService {
         guard case let .timedOut(operation, seconds, output) = error else {
             return nil
         }
-        let timeoutDescription = "FreshBrew stopped \(operation) after \(Int(seconds)) seconds."
+        let timeoutDescription = "\(AppIdentity.displayName) stopped \(operation) after \(Int(seconds)) seconds."
         let diagnosticOutput = [output, timeoutDescription]
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
@@ -1115,7 +1115,7 @@ actor HomebrewService {
                     kind: failure.kind
                 )
             case let .timedOut(_, seconds, output):
-                let detail = "FreshBrew stopped update verification after \(Int(seconds)) seconds."
+                let detail = "\(AppIdentity.displayName) stopped update verification after \(Int(seconds)) seconds."
                 return HomebrewCommandFailure(
                     operation: "verify updates",
                     exitCode: -1,

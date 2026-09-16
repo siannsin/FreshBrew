@@ -1,13 +1,13 @@
 import Foundation
 
 enum AppIdentity {
-    static let displayName = "FreshBrew"
-    static let bundleIdentifier = "net.siann.freshbrew"
-
-    static var bundleName: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
-            ?? displayName
-    }
+    static let bundleName = configuredString(for: "CFBundleName")
+        ?? Bundle.main.executableURL?.deletingPathExtension().lastPathComponent
+        ?? ProcessInfo.processInfo.processName
+    static let displayName = configuredString(for: "CFBundleDisplayName")
+        ?? bundleName
+    static let bundleIdentifier = Bundle.main.bundleIdentifier
+        ?? bundleName
 
     static var marketingVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
@@ -19,4 +19,11 @@ enum AppIdentity {
             ?? "0"
     }
 
+    private static func configuredString(for key: String) -> String? {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String,
+              !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
 }

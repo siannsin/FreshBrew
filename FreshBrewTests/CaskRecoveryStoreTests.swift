@@ -10,7 +10,8 @@ final class CaskRecoveryStoreTests: XCTestCase {
         temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         recoveryDirectory = temporaryDirectory
-            .appendingPathComponent("FreshBrew/CaskRecovery", isDirectory: true)
+            .appendingPathComponent(AppIdentity.bundleName, isDirectory: true)
+            .appendingPathComponent("CaskRecovery", isDirectory: true)
         try FileManager.default.createDirectory(
             at: temporaryDirectory,
             withIntermediateDirectories: true

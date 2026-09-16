@@ -25,7 +25,7 @@ actor HomebrewErrorLogStore {
             .appendingPathComponent("Library/Application Support", isDirectory: true)
 
         return applicationSupport
-            .appendingPathComponent("FreshBrew", isDirectory: true)
+            .appendingPathComponent(AppIdentity.bundleName, isDirectory: true)
             .appendingPathComponent("homebrew-errors.json")
     }
 

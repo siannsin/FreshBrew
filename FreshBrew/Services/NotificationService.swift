@@ -32,12 +32,12 @@ protocol ApplicationUpdateNotificationServing: Sendable {
 }
 
 actor NotificationService: NotificationServing, ApplicationUpdateNotificationServing {
-    static let updatesCategoryIdentifier = "net.siann.freshbrew.updates-available"
-    static let updateAllActionIdentifier = "net.siann.freshbrew.update-all"
-    static let applicationUpdateCategoryIdentifier = "net.siann.freshbrew.application-update"
-    static let viewReleaseActionIdentifier = "net.siann.freshbrew.view-release"
-    static let restartCategoryIdentifier = "net.siann.freshbrew.restart-required"
-    static let restartActionIdentifier = "net.siann.freshbrew.restart"
+    static let updatesCategoryIdentifier = identifier("updates-available")
+    static let updateAllActionIdentifier = identifier("update-all")
+    static let applicationUpdateCategoryIdentifier = identifier("application-update")
+    static let viewReleaseActionIdentifier = identifier("view-release")
+    static let restartCategoryIdentifier = identifier("restart-required")
+    static let restartActionIdentifier = identifier("restart")
     static let releasePageURLUserInfoKey = "releasePageURL"
 
     private let center: UNUserNotificationCenter
@@ -55,7 +55,7 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
         guard count > 0 else { return }
         registerCategories()
         let request = UNNotificationRequest(
-            identifier: "net.siann.freshbrew.updates-\(UUID().uuidString)",
+            identifier: Self.identifier("updates-\(UUID().uuidString)"),
             content: Self.updatesContent(count: count),
             trigger: nil
         )
@@ -64,7 +64,7 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
 
     func postCheckFailure(message: String) async {
         let request = UNNotificationRequest(
-            identifier: "net.siann.freshbrew.check-failure-\(UUID().uuidString)",
+            identifier: Self.identifier("check-failure-\(UUID().uuidString)"),
             content: Self.checkFailureContent(message: message),
             trigger: nil
         )
@@ -73,7 +73,7 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
 
     func postCleanupResult(_ result: CleanupResult) async {
         let request = UNNotificationRequest(
-            identifier: "net.siann.freshbrew.cleanup-result-\(UUID().uuidString)",
+            identifier: Self.identifier("cleanup-result-\(UUID().uuidString)"),
             content: Self.cleanupResultContent(result),
             trigger: nil
         )
@@ -82,7 +82,7 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
 
     func postCleanupFailure(deep: Bool, message: String) async {
         let request = UNNotificationRequest(
-            identifier: "net.siann.freshbrew.cleanup-failure-\(UUID().uuidString)",
+            identifier: Self.identifier("cleanup-failure-\(UUID().uuidString)"),
             content: Self.cleanupFailureContent(deep: deep, message: message),
             trigger: nil
         )
@@ -104,7 +104,7 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
             registerCategories()
         }
         let request = UNNotificationRequest(
-            identifier: "net.siann.freshbrew.update-result-\(UUID().uuidString)",
+            identifier: Self.identifier("update-result-\(UUID().uuidString)"),
             content: Self.updateResultContent(
                 updatedCount: updatedCount,
                 remainingUpdateCount: remainingUpdateCount,
@@ -126,7 +126,7 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
     ) async {
         registerCategories()
         let request = UNNotificationRequest(
-            identifier: "net.siann.freshbrew.application-update-\(version)",
+            identifier: Self.identifier("application-update-\(version)"),
             content: Self.applicationUpdateContent(
                 version: version,
                 releasePageURL: releasePageURL
@@ -147,7 +147,7 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
 
     nonisolated static func checkFailureContent(message: String) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
-        content.title = "FreshBrew check failed"
+        content.title = "\(AppIdentity.displayName) check failed"
         content.body = message
         content.sound = .default
         return content
@@ -235,7 +235,7 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
             break
         }
         if restartRequired {
-            details.append("Restart FreshBrew to finish")
+            details.append("Restart \(AppIdentity.displayName) to finish")
             content.categoryIdentifier = restartCategoryIdentifier
         }
         content.body = details.joined(separator: " · ")
@@ -277,7 +277,7 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
         )
         let restartAction = UNNotificationAction(
             identifier: Self.restartActionIdentifier,
-            title: "Restart FreshBrew"
+            title: "Restart \(AppIdentity.displayName)"
         )
         let restartCategory = UNNotificationCategory(
             identifier: Self.restartCategoryIdentifier,
@@ -289,6 +289,10 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
             applicationUpdateCategory,
             restartCategory
         ])
+    }
+
+    nonisolated private static func identifier(_ suffix: String) -> String {
+        "\(AppIdentity.bundleIdentifier).\(suffix)"
     }
 }
 

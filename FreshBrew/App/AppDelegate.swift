@@ -190,7 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func presentMutationInProgressAlert() {
         let alert = NSAlert()
         alert.messageText = "Homebrew operation in progress"
-        alert.informativeText = "Wait for this operation to finish before quitting FreshBrew."
+        alert.informativeText = "Wait for this operation to finish before quitting \(AppIdentity.displayName)."
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
         alert.runModal()

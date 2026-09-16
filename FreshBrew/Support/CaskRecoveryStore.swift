@@ -20,7 +20,7 @@ struct CaskRecoveryStore: Sendable {
             .appendingPathComponent("Library/Caches", isDirectory: true)
 
         return cachesDirectory
-            .appendingPathComponent("FreshBrew", isDirectory: true)
+            .appendingPathComponent(AppIdentity.bundleName, isDirectory: true)
             .appendingPathComponent("CaskRecovery", isDirectory: true)
     }
 

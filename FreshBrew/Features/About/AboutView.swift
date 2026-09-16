@@ -76,13 +76,13 @@ struct AboutView: View {
     private var updateActionHelp: String {
         switch applicationUpdateCoordinator.manualState {
         case .idle:
-            "Check for a newer FreshBrew release."
+            "Check for a newer \(AppIdentity.displayName) release."
         case .checking:
-            "Checking for a newer FreshBrew release."
+            "Checking for a newer \(AppIdentity.displayName) release."
         case .current:
-            "FreshBrew is up to date."
+            "\(AppIdentity.displayName) is up to date."
         case let .updateAvailable(release):
-            "View FreshBrew \(release.displayVersion) on GitHub."
+            "View \(AppIdentity.displayName) \(release.displayVersion) on GitHub."
         case let .failed(message):
             message
         }
