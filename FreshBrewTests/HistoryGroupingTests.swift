@@ -51,6 +51,26 @@ final class HistoryGroupingTests: XCTestCase {
         XCTAssertEqual(days.first?.entries.first?.id, newer.id)
     }
 
+    func testEntriesWithinDayAreNewestFirst() {
+        let timeZone = TimeZone(secondsFromGMT: 0)!
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let startOfDay = calendar.startOfDay(for: Date(timeIntervalSince1970: 100_000))
+        let older = UpdateHistoryEntry(
+            packages: [],
+            timestamp: startOfDay.addingTimeInterval(1_000)
+        )
+        let newer = UpdateHistoryEntry(
+            packages: [],
+            timestamp: startOfDay.addingTimeInterval(2_000)
+        )
+
+        let days = HistoryGrouping.days(from: [older, newer], calendar: calendar)
+
+        XCTAssertEqual(days.count, 1)
+        XCTAssertEqual(days[0].entries.map(\.id), [newer.id, older.id])
+    }
+
     func testCaskVersionDisplayUsesPrimaryCommaSeparatedVersion() {
         let package = UpdatedPackage(
             name: "claude",

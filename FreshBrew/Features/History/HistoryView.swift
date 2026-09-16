@@ -1,12 +1,33 @@
+import Combine
 import SwiftUI
 
+@MainActor
+private final class HistoryViewState: ObservableObject {
+    @Published private(set) var days: [HistoryDay] = []
+
+    init(model: MenuBarModel) {
+        model.$updateHistory
+            .map { HistoryGrouping.days(from: $0) }
+            .removeDuplicates()
+            .assign(to: &$days)
+    }
+}
+
 struct HistoryView: View {
-    @ObservedObject var model: MenuBarModel
+    @StateObject private var state: HistoryViewState
     let openPackageHomepage: (String, String, HomebrewPackageKind, URL?) -> Void
+
+    init(
+        model: MenuBarModel,
+        openPackageHomepage: @escaping (String, String, HomebrewPackageKind, URL?) -> Void
+    ) {
+        _state = StateObject(wrappedValue: HistoryViewState(model: model))
+        self.openPackageHomepage = openPackageHomepage
+    }
 
     var body: some View {
         Group {
-            if model.updateHistory.isEmpty {
+            if state.days.isEmpty {
                 ContentUnavailableView(
                     "No update history",
                     systemImage: "clock.arrow.circlepath",
@@ -14,7 +35,7 @@ struct HistoryView: View {
                 )
             } else {
                 List {
-                    ForEach(HistoryGrouping.days(from: model.updateHistory)) { day in
+                    ForEach(state.days) { day in
                         Section {
                             Text(HistoryGrouping.dateTitle(for: day.date))
                                 .font(.headline)

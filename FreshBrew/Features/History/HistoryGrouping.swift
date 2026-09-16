@@ -8,6 +8,21 @@ struct HistoryDay: Identifiable, Equatable {
 }
 
 enum HistoryGrouping {
+    private static let currentDateStyle = Date.FormatStyle(
+        date: .long,
+        time: .omitted,
+        locale: .autoupdatingCurrent,
+        calendar: .autoupdatingCurrent,
+        timeZone: .autoupdatingCurrent
+    )
+    private static let currentTimeStyle = Date.FormatStyle(
+        date: .omitted,
+        time: .shortened,
+        locale: .autoupdatingCurrent,
+        calendar: .autoupdatingCurrent,
+        timeZone: .autoupdatingCurrent
+    )
+
     static func days(
         from entries: [UpdateHistoryEntry],
         calendar: Calendar = .autoupdatingCurrent
@@ -23,33 +38,41 @@ enum HistoryGrouping {
         }
     }
 
+    static func dateTitle(for date: Date) -> String {
+        date.formatted(currentDateStyle)
+    }
+
     static func dateTitle(
         for date: Date,
-        locale: Locale = .autoupdatingCurrent,
-        calendar: Calendar = .autoupdatingCurrent,
-        timeZone: TimeZone = .autoupdatingCurrent
+        locale: Locale,
+        calendar: Calendar,
+        timeZone: TimeZone
     ) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.calendar = calendar
-        formatter.timeZone = timeZone
-        formatter.dateStyle = .long
-        formatter.timeStyle = .none
-        return formatter.string(from: date)
+        date.formatted(Date.FormatStyle(
+            date: .long,
+            time: .omitted,
+            locale: locale,
+            calendar: calendar,
+            timeZone: timeZone
+        ))
+    }
+
+    static func timeTitle(for date: Date) -> String {
+        date.formatted(currentTimeStyle)
     }
 
     static func timeTitle(
         for date: Date,
-        locale: Locale = .autoupdatingCurrent,
-        calendar: Calendar = .autoupdatingCurrent,
-        timeZone: TimeZone = .autoupdatingCurrent
+        locale: Locale,
+        calendar: Calendar,
+        timeZone: TimeZone
     ) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.calendar = calendar
-        formatter.timeZone = timeZone
-        formatter.dateStyle = .none
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
+        date.formatted(Date.FormatStyle(
+            date: .omitted,
+            time: .shortened,
+            locale: locale,
+            calendar: calendar,
+            timeZone: timeZone
+        ))
     }
 }
