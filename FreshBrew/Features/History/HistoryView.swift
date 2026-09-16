@@ -15,7 +15,12 @@ struct HistoryView: View {
             } else {
                 List {
                     ForEach(HistoryGrouping.days(from: model.updateHistory)) { day in
-                        Section(HistoryGrouping.dateTitle(for: day.date)) {
+                        Section {
+                            Text(HistoryGrouping.dateTitle(for: day.date))
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                                .accessibilityAddTraits(.isHeader)
+
                             ForEach(day.entries) { entry in
                                 HistoryEntryView(
                                     entry: entry,

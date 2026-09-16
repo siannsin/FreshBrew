@@ -6,7 +6,6 @@ import Foundation
 private func requestPassword() -> AskpassResponse {
     let application = NSApplication.shared
     application.setActivationPolicy(.accessory)
-    application.activate(ignoringOtherApps: true)
 
     let alert = NSAlert()
     alert.messageText = "Homebrew needs admin access"
@@ -31,7 +30,16 @@ private func requestPassword() -> AskpassResponse {
     )
     passwordField.placeholderString = "Password"
     alert.accessoryView = passwordField
-    alert.window.initialFirstResponder = passwordField
+    alert.layout()
+
+    let alertWindow = alert.window
+    alertWindow.initialFirstResponder = passwordField
+    application.activate(ignoringOtherApps: true)
+    DispatchQueue.main.async {
+        application.activate(ignoringOtherApps: true)
+        alertWindow.makeKey()
+        alertWindow.makeFirstResponder(passwordField)
+    }
 
     guard alert.runModal() == .alertFirstButtonReturn else {
         return .cancelled
