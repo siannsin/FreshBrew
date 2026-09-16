@@ -64,7 +64,7 @@ final class UpdateHistoryStore: @unchecked Sendable {
             .appendingPathComponent("Library/Application Support", isDirectory: true)
 
         return applicationSupport
-            .appendingPathComponent(AppIdentity.bundleIdentifier, isDirectory: true)
+            .appendingPathComponent(AppIdentity.bundleName, isDirectory: true)
             .appendingPathComponent("update-history.json")
     }
 

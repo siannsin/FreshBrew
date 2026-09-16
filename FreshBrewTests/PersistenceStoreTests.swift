@@ -272,10 +272,10 @@ final class PersistenceStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: parentFileURL.path))
     }
 
-    func testDefaultHistoryStoreUsesBundleApplicationSupportDirectory() {
+    func testDefaultHistoryStoreUsesFreshBrewApplicationSupportDirectory() {
         XCTAssertTrue(
             UpdateHistoryStore.defaultFileURL().path.hasSuffix(
-                "Application Support/\(AppIdentity.bundleIdentifier)/update-history.json"
+                "Application Support/\(AppIdentity.bundleName)/update-history.json"
             )
         )
     }
