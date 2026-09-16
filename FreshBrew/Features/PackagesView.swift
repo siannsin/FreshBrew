@@ -71,6 +71,7 @@ struct PackagesView: View {
                     Text(PackagesWindowState.Tab.skipped.title(
                         skippedPackageCount: model.rememberedSkippedPackageIDs.count
                     ))
+                    .monospacedDigit()
                 }
                 .tag(PackagesWindowState.Tab.skipped)
         }

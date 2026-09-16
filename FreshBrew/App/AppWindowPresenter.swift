@@ -50,7 +50,7 @@ final class AppWindowPresenter {
         let controller = showWindow(
             id: .packages,
             title: tab.windowTitle,
-            contentSize: NSSize(width: 400, height: 320),
+            contentSize: NSSize(width: 380, height: 320),
             minimumSize: NSSize(width: 380, height: 300),
             isResizable: true,
             content: AnyView(PackagesView(
