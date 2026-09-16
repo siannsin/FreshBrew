@@ -85,6 +85,9 @@ final class AppWorkflowTests: XCTestCase {
     private func makeWindowPresenter() -> AppWindowPresenter {
         let defaults = InMemoryPreferencesStore()
         let preferences = FreshBrewPreferences(defaults: defaults)
+        let historyURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent("update-history.json")
         let model = MenuBarModel(
             homebrewService: HomebrewService(
                 executableURL: URL(fileURLWithPath: "/usr/local/bin/brew"),
@@ -92,7 +95,7 @@ final class AppWorkflowTests: XCTestCase {
                 executableIsAvailable: { _ in true }
             ),
             preferences: preferences,
-            historyStore: UpdateHistoryStore(defaults: defaults),
+            historyStore: UpdateHistoryStore(defaults: defaults, fileURL: historyURL),
             packageHomepageStore: PackageHomepageStore(defaults: defaults)
         )
         return AppWindowPresenter(

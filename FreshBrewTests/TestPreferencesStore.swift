@@ -46,4 +46,8 @@ final class InMemoryPreferencesStore: PreferencesStoring {
             values.removeValue(forKey: defaultName)
         }
     }
+
+    func removeObject(forKey defaultName: String) {
+        values.removeValue(forKey: defaultName)
+    }
 }

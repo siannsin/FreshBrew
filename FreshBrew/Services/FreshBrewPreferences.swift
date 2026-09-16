@@ -9,6 +9,7 @@ protocol PreferencesStoring: AnyObject {
     func bool(forKey defaultName: String) -> Bool
     func double(forKey defaultName: String) -> Double
     func set(_ value: Any?, forKey defaultName: String)
+    func removeObject(forKey defaultName: String)
 }
 
 extension UserDefaults: PreferencesStoring {}

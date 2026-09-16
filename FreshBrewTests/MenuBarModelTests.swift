@@ -369,8 +369,7 @@ final class MenuBarModelTests: XCTestCase {
 
         XCTAssertEqual(model.latestUpdate?.packages.first?.homepageURL, homepageURL)
         XCTAssertEqual(
-            UpdateHistoryStore(defaults: dependencies.defaults)
-                .load().first?.packages.first?.homepageURL,
+            dependencies.historyStore.load().first?.packages.first?.homepageURL,
             homepageURL
         )
     }
@@ -1844,7 +1843,11 @@ final class MenuBarModelTests: XCTestCase {
         return ModelDependencies(
             defaults: defaults,
             preferences: FreshBrewPreferences(defaults: defaults),
-            historyStore: UpdateHistoryStore(defaults: defaults),
+            historyStore: UpdateHistoryStore(
+                defaults: defaults,
+                fileURL: logDirectory.appendingPathComponent("update-history.json"),
+                now: { now }
+            ),
             packageHomepageStore: PackageHomepageStore(defaults: defaults),
             errorLogStore: HomebrewErrorLogStore(
                 fileURL: logDirectory.appendingPathComponent("homebrew-errors.json")
