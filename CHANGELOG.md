@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.0] - 18 September 2026
+
+### Added
+
+- Update History now keeps six months of updates and carries over your existing history.
+
+### Improved
+
+- Available updates can still be shown if Homebrew has trouble refreshing its sources.
+- Update results and recorded versions are more accurate, including for packages from third-party taps.
+- Password prompts are clearer, show the package name more reliably, and respond correctly on macOS 27.
+- Update History scrolls more smoothly and no longer shows shaded date headings on macOS 27.
+- The Packages tabs stay steadier while resizing, and Installed search clears when you reopen the window.
+- Update failures caused by incomplete Xcode setup now explain what to do next.
+- FreshBrew prevents quitting during package changes, reducing the chance of an interrupted update.
+
 ## [0.4.0] - September 2026
 
 ### Added
@@ -65,6 +81,7 @@
 - Seven-day diagnostic retention for Homebrew failures without storing administrator passwords.
 - Launch-at-login support.
 
+[0.5.0]: https://github.com/siannsin/FreshBrew/releases/tag/v0.5.0
 [0.4.0]: https://github.com/siannsin/FreshBrew/releases/tag/v0.4.0
 [0.3.0]: https://github.com/siannsin/FreshBrew/releases/tag/v0.3.0
 [0.2.0]: https://github.com/siannsin/FreshBrew/releases/tag/v0.2.0
