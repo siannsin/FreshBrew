@@ -24,6 +24,7 @@ final class FreshBrewPreferences: @unchecked Sendable {
         static let rememberedSkippedPackageIDs = "rememberedSkippedPackageIDs"
         static let legacyLastHomebrewCheckDate = "lastHomebrewCheckDate"
         static let lastSuccessfulHomebrewCheckDate = "lastSuccessfulHomebrewCheckDate"
+        static let hasPendingHomebrewUpdates = "hasPendingHomebrewUpdates"
         static let appUpdateChecksEnabled = "appUpdateChecksEnabled"
         static let lastSuccessfulAppUpdateCheckDate = "lastSuccessfulAppUpdateCheckDate"
         static let lastNotifiedAppVersion = "lastNotifiedAppVersion"
@@ -84,6 +85,11 @@ final class FreshBrewPreferences: @unchecked Sendable {
     var lastSuccessfulHomebrewCheckDate: Date? {
         get { read { $0.object(forKey: Key.lastSuccessfulHomebrewCheckDate) as? Date } }
         set { write { $0.set(newValue, forKey: Key.lastSuccessfulHomebrewCheckDate) } }
+    }
+
+    var hasPendingHomebrewUpdates: Bool {
+        get { read { $0.bool(forKey: Key.hasPendingHomebrewUpdates) } }
+        set { write { $0.set(newValue, forKey: Key.hasPendingHomebrewUpdates) } }
     }
 
     var appUpdateChecksEnabled: Bool {

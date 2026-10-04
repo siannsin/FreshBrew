@@ -4,6 +4,131 @@ import XCTest
 
 @MainActor
 final class MenuBarModelTests: XCTestCase {
+    func testOnlyRememberedSkippedUpdatesDoNotTriggerRelaunchCheck() async {
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let package = makePackage(named: "chatgpt", kind: .cask)
+        dependencies.preferences.rememberedSkippedPackageIDs = [package.id]
+        let service = FakeHomebrewService(checkResponses: [.packages([package])])
+        let model = makeModel(service: service, dependencies: dependencies)
+        _ = await model.checkUpdates()
+
+        XCTAssertTrue(model.visiblePackages.isEmpty)
+        XCTAssertFalse(dependencies.preferences.hasPendingHomebrewUpdates)
+        let relaunched = makeModel(service: service, dependencies: dependencies)
+        await relaunched.checkPendingUpdatesOnLaunch()
+        let count = await service.checkCount()
+        XCTAssertEqual(count, 1)
+    }
+
+    func testSessionSkippedUpdatesRemainPendingForRelaunch() async {
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let package = makePackage(named: "ripgrep", kind: .formula)
+        let model = makeModel(
+            service: FakeHomebrewService(checkResponses: [.packages([package])]),
+            dependencies: dependencies
+        )
+        _ = await model.checkUpdates()
+        model.skip(package, remember: false)
+
+        XCTAssertTrue(model.visiblePackages.isEmpty)
+        XCTAssertTrue(dependencies.preferences.hasPendingHomebrewUpdates)
+    }
+
+    func testRememberedSkipChangesRefreshPendingFlag() async {
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let package = makePackage(named: "ripgrep", kind: .formula)
+        let model = makeModel(
+            service: FakeHomebrewService(checkResponses: [.packages([package])]),
+            dependencies: dependencies
+        )
+        _ = await model.checkUpdates()
+        model.skip(package, remember: true)
+        XCTAssertFalse(dependencies.preferences.hasPendingHomebrewUpdates)
+        model.forgetSkippedPackage(id: package.id)
+        XCTAssertTrue(dependencies.preferences.hasPendingHomebrewUpdates)
+        model.skip(package, remember: true)
+        model.clearRememberedSkippedPackages()
+        XCTAssertTrue(dependencies.preferences.hasPendingHomebrewUpdates)
+    }
+
+    func testSkipChangesBeforeListingPreservePersistedLaunchHint() {
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        dependencies.preferences.hasPendingHomebrewUpdates = true
+        let model = makeModel(service: FakeHomebrewService(), dependencies: dependencies)
+        model.clearRememberedSkippedPackages()
+        XCTAssertTrue(dependencies.preferences.hasPendingHomebrewUpdates)
+    }
+
+    func testPendingUpdatesTriggerLaunchCheckDespiteRecentCheck() async {
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        dependencies.preferences.hasPendingHomebrewUpdates = true
+        dependencies.preferences.lastSuccessfulHomebrewCheckDate = dependencies.referenceDate
+        let package = makePackage(named: "ripgrep", kind: .formula)
+        let service = FakeHomebrewService(checkResponses: [.packages([package])])
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        XCTAssertTrue(model.availablePackages.isEmpty)
+        await model.checkPendingUpdatesOnLaunch()
+
+        let count = await service.checkCount()
+        XCTAssertEqual(count, 1)
+        XCTAssertEqual(model.availablePackages, [package])
+        XCTAssertTrue(dependencies.preferences.hasPendingHomebrewUpdates)
+        XCTAssertTrue(FreshBrewPreferences(defaults: dependencies.defaults).hasPendingHomebrewUpdates)
+    }
+
+    func testLaunchWithoutPendingUpdatesDoesNotCheck() async {
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let service = FakeHomebrewService()
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        await model.checkPendingUpdatesOnLaunch()
+
+        let count = await service.checkCount()
+        XCTAssertEqual(count, 0)
+    }
+
+    func testEmptyLaunchCheckClearsPendingUpdatesFlag() async {
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        dependencies.preferences.hasPendingHomebrewUpdates = true
+        let model = makeModel(service: FakeHomebrewService(), dependencies: dependencies)
+
+        await model.checkPendingUpdatesOnLaunch()
+
+        XCTAssertFalse(dependencies.preferences.hasPendingHomebrewUpdates)
+    }
+
+    func testFailedLaunchCheckPreservesPendingUpdatesFlag() async {
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        dependencies.preferences.hasPendingHomebrewUpdates = true
+        let service = FakeHomebrewService(checkResponses: [.failure(.networkUnavailable)])
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        await model.checkPendingUpdatesOnLaunch()
+
+        XCTAssertTrue(dependencies.preferences.hasPendingHomebrewUpdates)
+    }
+
+    func testCancelledLaunchCheckPreservesPendingUpdatesFlag() async {
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        dependencies.preferences.hasPendingHomebrewUpdates = true
+        let model = makeModel(service: FakeHomebrewService(), dependencies: dependencies)
+        let task = Task { await model.checkPendingUpdatesOnLaunch() }
+        task.cancel()
+        await task.value
+
+        XCTAssertTrue(dependencies.preferences.hasPendingHomebrewUpdates)
+    }
+
     func testLoadingInstalledPackagesStoresInventoryAndLoadedState() async {
         let inventory = [
             InstalledPackage(
@@ -622,6 +747,7 @@ final class MenuBarModelTests: XCTestCase {
         _ = await model.updateAll()
 
         XCTAssertEqual(model.availablePackages, [failed])
+        XCTAssertTrue(dependencies.preferences.hasPendingHomebrewUpdates)
         XCTAssertEqual(model.latestUpdate?.packages.map(\.name), ["completed"])
         XCTAssertNotNil(model.lastErrorMessage)
         XCTAssertEqual(model.statusMessage, "Update failed")
@@ -650,6 +776,7 @@ final class MenuBarModelTests: XCTestCase {
         let notifications = FakeNotificationService()
         let dependencies = makeDependencies()
         defer { dependencies.cleanUp() }
+        dependencies.preferences.hasPendingHomebrewUpdates = true
         let model = makeModel(
             service: service,
             dependencies: dependencies,
@@ -674,6 +801,7 @@ final class MenuBarModelTests: XCTestCase {
         )
         XCTAssertEqual(model.statusMessage, "\(AppIdentity.displayName) is ready")
         XCTAssertEqual(model.activity, .idle)
+        XCTAssertFalse(dependencies.preferences.hasPendingHomebrewUpdates)
     }
 
     func testSuccessfulUpdateReportsOnlyNewlyDiscoveredPackages() async {
@@ -840,6 +968,7 @@ final class MenuBarModelTests: XCTestCase {
         _ = await model.updateAll()
 
         XCTAssertEqual(model.availablePackages, [completed, uncertain])
+        XCTAssertTrue(dependencies.preferences.hasPendingHomebrewUpdates)
         XCTAssertEqual(model.latestUpdate?.packages.map(\.name), ["ripgrep"])
         XCTAssertEqual(model.statusMessage, "Verification failed")
         XCTAssertEqual(

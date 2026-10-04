@@ -40,6 +40,7 @@ final class MenuBarModel: ObservableObject {
             guard greedyModeEnabled != oldValue else { return }
             preferences.greedyModeEnabled = greedyModeEnabled
             availablePackages = []
+            hasKnownAvailablePackages = false
             sessionSkippedPackageIDs = []
             lastSuccessfulHomebrewCheckDate = nil
             preferences.lastSuccessfulHomebrewCheckDate = nil
@@ -71,9 +72,23 @@ final class MenuBarModel: ObservableObject {
     var visiblePackages: [HomebrewPackage] {
         let skippedIDs = sessionSkippedPackageIDs.union(rememberedSkippedPackageIDs)
         return availablePackages.filter {
-            !skippedIDs.contains($0.id)
-                && !(skippedIDs.contains($0.legacyID)
-                    && legacySkipApplies(packageID: $0.id, legacyID: $0.legacyID))
+            !isSkipped($0, by: skippedIDs)
+        }
+    }
+
+    private var hasKnownAvailablePackages = false
+
+    private func isSkipped(_ package: HomebrewPackage, by ids: Set<String>) -> Bool {
+        ids.contains(package.id)
+            || (ids.contains(package.legacyID)
+                && legacySkipApplies(packageID: package.id, legacyID: package.legacyID))
+    }
+
+    private func refreshPendingUpdatesFlag() {
+        // An empty, not-yet-loaded list must not erase the persisted launch hint.
+        guard hasKnownAvailablePackages else { return }
+        preferences.hasPendingHomebrewUpdates = availablePackages.contains {
+            !isSkipped($0, by: rememberedSkippedPackageIDs)
         }
     }
 
@@ -200,6 +215,8 @@ final class MenuBarModel: ObservableObject {
             let homepageURLs = await homebrewService.packageHomepageURLs(for: packages)
             packageHomepageStore.save(homepageURLs)
             availablePackages = attachHomepageURLs(to: packages)
+            hasKnownAvailablePackages = true
+            refreshPendingUpdatesFlag()
             sessionSkippedPackageIDs = []
             statusMessage = "\(AppIdentity.displayName) is ready"
             await notificationService.postUpdatesAvailable(count: visiblePackages.count)
@@ -330,6 +347,7 @@ final class MenuBarModel: ObservableObject {
         sessionSkippedPackageIDs.remove(package.id)
         sessionSkippedPackageIDs.remove(package.legacyID)
         preferences.rememberedSkippedPackageIDs = rememberedSkippedPackageIDs
+        refreshPendingUpdatesFlag()
     }
 
     func forgetSkippedPackage(id: String) {
@@ -338,11 +356,13 @@ final class MenuBarModel: ObservableObject {
             sessionSkippedPackageIDs.remove(id)
         }
         preferences.rememberedSkippedPackageIDs = rememberedSkippedPackageIDs
+        refreshPendingUpdatesFlag()
     }
 
     func clearRememberedSkippedPackages() {
         rememberedSkippedPackageIDs = []
         preferences.rememberedSkippedPackageIDs = []
+        refreshPendingUpdatesFlag()
     }
 
     private func rememberSkippedPackage(id: String, homepageURL: URL?) {
@@ -351,6 +371,7 @@ final class MenuBarModel: ObservableObject {
         }
         rememberedSkippedPackageIDs.insert(id)
         preferences.rememberedSkippedPackageIDs = rememberedSkippedPackageIDs
+        refreshPendingUpdatesFlag()
     }
 
     private func migrateLegacyPackageReferences(using packages: [InstalledPackage]) {
@@ -371,6 +392,7 @@ final class MenuBarModel: ObservableObject {
 
         if didMigrateSkip {
             preferences.rememberedSkippedPackageIDs = rememberedSkippedPackageIDs
+            refreshPendingUpdatesFlag()
         }
     }
 
@@ -378,6 +400,11 @@ final class MenuBarModel: ObservableObject {
         !installedPackages.contains {
             $0.id == legacyID && $0.id != packageID
         }
+    }
+
+    func checkPendingUpdatesOnLaunch() async {
+        guard preferences.hasPendingHomebrewUpdates else { return }
+        _ = await checkUpdates(respectMinimumInterval: false)
     }
 
     func startAutomaticChecks() {
@@ -543,6 +570,8 @@ final class MenuBarModel: ObservableObject {
 
         if result.verification.failure == nil {
             availablePackages = attachHomepageURLs(to: result.remainingPackages)
+            hasKnownAvailablePackages = true
+            refreshPendingUpdatesFlag()
         } else {
             pendingVerificationUnavailable = true
         }

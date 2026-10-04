@@ -109,6 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Task { try? await errorLogStore.pruneExpiredEntries() }
         model.startAutomaticChecks()
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+            Task { await model.checkPendingUpdatesOnLaunch() }
             applicationUpdateCoordinator.startBackgroundChecks()
         }
         unlockMonitor.start { [weak model] in
