@@ -4,6 +4,47 @@ import XCTest
 
 @MainActor
 final class MenuBarModelTests: XCTestCase {
+    func testNotificationActionRechecksAndUpdatesOnlyNotifiedEligiblePackages() async {
+        let notified = makePackage(named: "ripgrep", kind: .formula)
+        let unrelated = makePackage(named: "node", kind: .formula)
+        let skipped = makePackage(named: "chatgpt", kind: .cask)
+        let service = FakeHomebrewService(checkResponses: [.packages([notified, unrelated, skipped])])
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        dependencies.preferences.rememberedSkippedPackageIDs = [skipped.id]
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        _ = await model.updateFromNotification(packageIDs: [notified.id, skipped.id, "cask:gone"])
+
+        let count = await service.checkCount()
+        let batches = await service.recordedUpdatePackageIDBatches()
+        XCTAssertEqual(count, 1)
+        XCTAssertEqual(batches, [[notified.id]])
+    }
+
+    func testNotificationActionDoesNotUpgradeWhenCheckFailsOrTargetsAreMissing() async {
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let service = FakeHomebrewService(checkResponses: [.failure(.networkUnavailable), .packages([])])
+        let model = makeModel(service: service, dependencies: dependencies)
+        _ = await model.updateFromNotification(packageIDs: ["formula:ripgrep"])
+        _ = await model.updateFromNotification(packageIDs: ["formula:ripgrep"])
+        let batches = await service.recordedUpdatePackageIDBatches()
+        XCTAssertTrue(batches.isEmpty)
+    }
+
+    func testLegacyNotificationRefreshesWithoutUpgradingUnspecifiedPackages() async {
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let package = makePackage(named: "ripgrep", kind: .formula)
+        let service = FakeHomebrewService(checkResponses: [.packages([package])])
+        let model = makeModel(service: service, dependencies: dependencies)
+        _ = await model.updateFromNotification(packageIDs: nil)
+        let batches = await service.recordedUpdatePackageIDBatches()
+        XCTAssertTrue(batches.isEmpty)
+        XCTAssertEqual(model.visiblePackages, [package])
+    }
+
     func testVerifiedUpdatesWithCommandErrorsKeepDiagnosticsAndReportIssues() async {
         let package = makePackage(named: "yt-dlp", kind: .formula)
         let timestamp = Date(timeIntervalSince1970: 500)
@@ -17,7 +58,8 @@ final class MenuBarModelTests: XCTestCase {
         ))
         let dependencies = makeDependencies(now: timestamp)
         defer { dependencies.cleanUp() }
-        let model = makeModel(service: service, dependencies: dependencies)
+        let notifications = FakeNotificationService()
+        let model = makeModel(service: service, dependencies: dependencies, notificationService: notifications)
         model.autoCleanupEnabled = true
 
         let result = await model.update(package: package)
@@ -31,6 +73,29 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertTrue(cleanupCalls.isEmpty)
         let entries = try? await dependencies.errorLogStore.entries(referenceDate: timestamp)
         XCTAssertEqual(entries?.first?.output, "dependency link conflict")
+        let cleared = await notifications.availableAlertClearCount()
+        XCTAssertEqual(cleared, 1)
+    }
+
+    func testFailedCheckAndUnavailableVerificationDoNotClearAvailableAlerts() async {
+        let package = makePackage(named: "ripgrep", kind: .formula)
+        let service = FakeHomebrewService(
+            checkResponses: [.failure(.networkUnavailable)],
+            updateResult: UpdateResult(
+                completedPackages: [], remainingPackages: [package], failures: [], timestamp: Date(),
+                verification: .unavailable(HomebrewCommandFailure(
+                    operation: "verify updates", exitCode: 1, output: "unavailable"
+                ))
+            )
+        )
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let notifications = FakeNotificationService()
+        let model = makeModel(service: service, dependencies: dependencies, notificationService: notifications)
+        _ = await model.checkUpdates()
+        _ = await model.update(package: package)
+        let cleared = await notifications.availableAlertClearCount()
+        XCTAssertEqual(cleared, 0)
     }
 
     func testOnlyRememberedSkippedUpdatesDoNotTriggerRelaunchCheck() async {
@@ -2255,13 +2320,18 @@ private actor FakeNotificationService: NotificationServing {
     private var cleanupResultValues: [CleanupResult] = []
     private var cleanupFailureValues: [(deep: Bool, message: String)] = []
     private var completionValues: [UpdateCompletion] = []
+    private var clearCount = 0
 
     func requestAuthorization() async {}
 
-    func postUpdatesAvailable(count: Int) async {
+    func postUpdatesAvailable(packages: [HomebrewPackage]) async {
+        let count = packages.count
         guard count > 0 else { return }
         counts.append(count)
     }
+
+    func clearUpdatesAvailable() async { clearCount += 1 }
+    func availableAlertClearCount() -> Int { clearCount }
 
     func postCheckFailure(message: String) async {
         failures.append(message)

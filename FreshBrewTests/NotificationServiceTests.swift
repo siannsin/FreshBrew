@@ -1,7 +1,47 @@
 import XCTest
+@preconcurrency import UserNotifications
 @testable import FreshBrew
 
 final class NotificationServiceTests: XCTestCase {
+    func testAvailableUpdateAlertsReplaceLegacyAlertsWithoutRemovingOtherTypes() async {
+        let legacy = UNNotificationRequest(
+            identifier: "legacy-updates", content: NotificationService.updatesContent(count: 2), trigger: nil
+        )
+        let unrelated = UNNotificationRequest(
+            identifier: "failure", content: NotificationService.checkFailureContent(message: "test"), trigger: nil
+        )
+        let center = FakeNotificationCenter(
+            delivered: [NotificationRequestValue(legacy), NotificationRequestValue(unrelated)],
+            pending: [NotificationRequestValue(legacy)]
+        )
+        let service = NotificationService(center: center)
+        let package = HomebrewPackage(name: "ripgrep", installedVersion: "1", availableVersion: "2", kind: .formula)
+
+        await service.postUpdatesAvailable(packages: [package])
+        await service.postUpdatesAvailable(packages: [package])
+
+        let delivered = await center.deliveredRequests()
+        XCTAssertEqual(delivered.map { $0.request.identifier }, ["failure", NotificationService.availableUpdatesRequestIdentifier])
+        let added = await center.addedRequests()
+        XCTAssertEqual(added.count, 2, "Unchanged results must still notify on each check")
+        XCTAssertEqual(added.last?.request.content.userInfo[NotificationService.packageIDsUserInfoKey] as? [String], [package.id])
+        let pending = await center.pendingRequests()
+        XCTAssertTrue(pending.isEmpty)
+    }
+
+    func testEmptyResultsClearAvailableUpdateAlertsWithoutPostingAnother() async {
+        let center = FakeNotificationCenter(delivered: [NotificationRequestValue(UNNotificationRequest(
+            identifier: "old", content: NotificationService.updatesContent(count: 1), trigger: nil
+        ))])
+        let service = NotificationService(center: center)
+        await service.postUpdatesAvailable(packages: [])
+
+        let delivered = await center.deliveredRequests()
+        let added = await center.addedRequests()
+        XCTAssertTrue(delivered.isEmpty)
+        XCTAssertTrue(added.isEmpty)
+    }
+
     func testUpdatesContentUsesCountAndActionCategory() {
         let content = NotificationService.updatesContent(count: 2)
 
@@ -16,8 +56,8 @@ final class NotificationServiceTests: XCTestCase {
     func testCheckFailureContentIncludesMessage() {
         let content = NotificationService.checkFailureContent(message: "Network unavailable")
 
-        XCTAssertEqual(content.title, "\(AppIdentity.displayName) check failed")
-        XCTAssertEqual(content.body, "Network unavailable")
+        XCTAssertEqual(content.title, AppIdentity.displayName)
+        XCTAssertEqual(content.body, "Check failed · Network unavailable")
     }
 
     func testCleanupResultContentIncludesOperationAndFreedSpace() {
@@ -38,7 +78,7 @@ final class NotificationServiceTests: XCTestCase {
         XCTAssertEqual(cleanupContent.title, AppIdentity.displayName)
         XCTAssertEqual(cleanupContent.body, "Cleanup completed · 1.3GB freed")
         XCTAssertEqual(deepCleanupContent.title, AppIdentity.displayName)
-        XCTAssertEqual(deepCleanupContent.body, "Deep Cleanup completed · 3.5GB freed")
+        XCTAssertEqual(deepCleanupContent.body, "Deep cleanup completed · 3.5GB freed")
     }
 
     func testCleanupResultContentOmitsUnknownFreedSpace() {
@@ -72,7 +112,7 @@ final class NotificationServiceTests: XCTestCase {
         XCTAssertEqual(deepCleanupContent.title, AppIdentity.displayName)
         XCTAssertEqual(
             deepCleanupContent.body,
-            "Deep Cleanup timed out after 5 minutes."
+            "Deep cleanup timed out after 5 minutes."
         )
     }
 
@@ -127,19 +167,19 @@ final class NotificationServiceTests: XCTestCase {
             cleanupOutcome: nil
         )
 
-        XCTAssertEqual(completed.title, "")
+        XCTAssertEqual(completed.title, AppIdentity.displayName)
         XCTAssertEqual(
             completed.body,
             "2 packages updated · 3 new updates available · 1.3GB freed"
         )
-        XCTAssertEqual(cleanupWithNoFreedSpace.title, "")
+        XCTAssertEqual(cleanupWithNoFreedSpace.title, AppIdentity.displayName)
         XCTAssertEqual(cleanupWithNoFreedSpace.body, "2 packages updated")
-        XCTAssertEqual(cleanupFailed.title, "")
+        XCTAssertEqual(cleanupFailed.title, AppIdentity.displayName)
         XCTAssertEqual(
             cleanupFailed.body,
             "1 package updated · 1 new update available · Cleanup failed"
         )
-        XCTAssertEqual(disabled.title, "")
+        XCTAssertEqual(disabled.title, AppIdentity.displayName)
         XCTAssertEqual(disabled.body, "3 packages updated")
     }
 
@@ -159,12 +199,12 @@ final class NotificationServiceTests: XCTestCase {
             cleanupOutcome: nil
         )
 
-        XCTAssertEqual(partialFailure.title, "")
+        XCTAssertEqual(partialFailure.title, AppIdentity.displayName)
         XCTAssertEqual(
             partialFailure.body,
-            "3 packages updated · Homebrew reported issues."
+            "3 packages updated · Homebrew reported issues"
         )
-        XCTAssertEqual(totalFailure.title, "")
+        XCTAssertEqual(totalFailure.title, AppIdentity.displayName)
         XCTAssertEqual(
             totalFailure.body,
             "Update failed · 1 package still needs an update"
@@ -180,7 +220,7 @@ final class NotificationServiceTests: XCTestCase {
             cleanupOutcome: nil
         )
 
-        XCTAssertEqual(content.body, "8 packages updated · Homebrew reported issues.")
+        XCTAssertEqual(content.body, "8 packages updated · Homebrew reported issues")
     }
 
     func testUpdateResultContentDescribesUnavailableVerification() {
@@ -266,4 +306,30 @@ final class NotificationServiceTests: XCTestCase {
         XCTAssertNil(noSpaceReported.freedSpaceDescription)
         XCTAssertNil(zeroSpaceFreed.freedSpaceDescription)
     }
+}
+
+private actor FakeNotificationCenter: NotificationCenterServing {
+    private var delivered: [NotificationRequestValue]
+    private var pending: [NotificationRequestValue]
+    private var added: [NotificationRequestValue] = []
+
+    init(delivered: [NotificationRequestValue] = [], pending: [NotificationRequestValue] = []) {
+        self.delivered = delivered
+        self.pending = pending
+    }
+    func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool { true }
+    func add(_ request: NotificationRequestValue) async throws {
+        added.append(request)
+        delivered.append(request)
+    }
+    func deliveredRequests() async -> [NotificationRequestValue] { delivered }
+    func pendingRequests() async -> [NotificationRequestValue] { pending }
+    func removeDeliveredNotifications(withIdentifiers identifiers: [String]) async {
+        delivered.removeAll { identifiers.contains($0.request.identifier) }
+    }
+    func removePendingNotificationRequests(withIdentifiers identifiers: [String]) async {
+        pending.removeAll { identifiers.contains($0.request.identifier) }
+    }
+    func setNotificationCategories(_ categories: NotificationCategoriesValue) async {}
+    func addedRequests() -> [NotificationRequestValue] { added }
 }

@@ -219,7 +219,7 @@ final class MenuBarModel: ObservableObject {
             refreshPendingUpdatesFlag()
             sessionSkippedPackageIDs = []
             statusMessage = "\(AppIdentity.displayName) is ready"
-            await notificationService.postUpdatesAvailable(count: visiblePackages.count)
+            await notificationService.postUpdatesAvailable(packages: visiblePackages)
             return true
         } catch {
             if error is CancellationError {
@@ -407,6 +407,13 @@ final class MenuBarModel: ObservableObject {
         _ = await checkUpdates(respectMinimumInterval: false)
     }
 
+    func updateFromNotification(packageIDs: Set<String>?) async -> UpdateResult? {
+        guard await checkUpdates() else { return nil }
+        // Legacy alerts cannot safely identify which packages were authorized.
+        guard let packageIDs else { return nil }
+        return await update(packages: visiblePackages.filter { packageIDs.contains($0.id) })
+    }
+
     func startAutomaticChecks() {
         guard !automaticChecksStarted else { return }
         automaticChecksStarted = true
@@ -572,6 +579,7 @@ final class MenuBarModel: ObservableObject {
             availablePackages = attachHomepageURLs(to: result.remainingPackages)
             hasKnownAvailablePackages = true
             refreshPendingUpdatesFlag()
+            await notificationService.clearUpdatesAvailable()
         } else {
             pendingVerificationUnavailable = true
         }

@@ -3,12 +3,12 @@ import UserNotifications
 
 @MainActor
 final class NotificationActionRouter {
-    private let updateAll: @MainActor () async -> Void
+    private let updateAll: @MainActor (Set<String>?) async -> Void
     private let viewRelease: @MainActor (String) -> Bool
     private let restartApplication: @MainActor () -> Void
 
     init(
-        updateAll: @escaping @MainActor () async -> Void,
+        updateAll: @escaping @MainActor (Set<String>?) async -> Void,
         viewRelease: @escaping @MainActor (String) -> Bool,
         restartApplication: @escaping @MainActor () -> Void
     ) {
@@ -20,10 +20,11 @@ final class NotificationActionRouter {
     @discardableResult
     func handle(
         actionIdentifier: String,
-        releasePageURL: String? = nil
+        releasePageURL: String? = nil,
+        packageIDs: Set<String>? = nil
     ) async -> Bool {
         if actionIdentifier == NotificationService.updateAllActionIdentifier {
-            await updateAll()
+            await updateAll(packageIDs)
             return true
         }
 

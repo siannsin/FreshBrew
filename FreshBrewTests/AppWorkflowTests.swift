@@ -365,10 +365,11 @@ final class AppWorkflowTests: XCTestCase {
 
     func testNotificationActionRouterHandlesOnlyUpdateAllAction() async {
         var calls = 0
+        var notifiedPackageIDs: Set<String>?
         var releaseURLs: [String] = []
         var restartCalls = 0
         let router = NotificationActionRouter(
-            updateAll: { calls += 1 },
+            updateAll: { ids in calls += 1; notifiedPackageIDs = ids },
             viewRelease: { url in
                 releaseURLs.append(url)
                 return true
@@ -378,7 +379,8 @@ final class AppWorkflowTests: XCTestCase {
 
         let ignored = await router.handle(actionIdentifier: "unrelated")
         let handled = await router.handle(
-            actionIdentifier: NotificationService.updateAllActionIdentifier
+            actionIdentifier: NotificationService.updateAllActionIdentifier,
+            packageIDs: ["formula:ripgrep"]
         )
         let releaseHandled = await router.handle(
             actionIdentifier: NotificationService.viewReleaseActionIdentifier,
@@ -393,6 +395,7 @@ final class AppWorkflowTests: XCTestCase {
         XCTAssertTrue(releaseHandled)
         XCTAssertTrue(restartHandled)
         XCTAssertEqual(calls, 1)
+        XCTAssertEqual(notifiedPackageIDs, ["formula:ripgrep"])
         XCTAssertEqual(restartCalls, 1)
         XCTAssertEqual(
             releaseURLs,

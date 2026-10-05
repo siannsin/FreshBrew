@@ -68,9 +68,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             packageHomepageService: packageHomepageService
         )
         notificationRouter = NotificationActionRouter(
-            updateAll: {
+            updateAll: { packageIDs in
                 NSApplication.shared.activate(ignoringOtherApps: true)
-                await updateCoordinator.updateAll()
+                _ = await model.updateFromNotification(packageIDs: packageIDs)
             },
             viewRelease: { releasePageURL in
                 applicationUpdateCoordinator.openReleasePage(from: releasePageURL)
@@ -152,12 +152,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let releasePageURL = response.notification.request.content.userInfo[
             NotificationService.releasePageURLUserInfoKey
         ] as? String
+        let packageIDs = (response.notification.request.content.userInfo[
+            NotificationService.packageIDsUserInfoKey
+        ] as? [String]).map { Set($0) }
         completionHandler()
         Task { @MainActor [weak self] in
             if let self {
                 _ = await notificationRouter.handle(
                     actionIdentifier: actionIdentifier,
-                    releasePageURL: releasePageURL
+                    releasePageURL: releasePageURL,
+                    packageIDs: packageIDs
                 )
             }
         }
