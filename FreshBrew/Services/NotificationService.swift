@@ -209,14 +209,12 @@ actor NotificationService: NotificationServing, ApplicationUpdateNotificationSer
         } else if verificationUnavailable {
             details.append("Remaining updates couldn’t be verified")
         } else if hadFailures {
-            if remainingUpdateCount == 1 {
-                let subject = updatedCount > 0 ? "1" : "1 package"
-                details.append("\(subject) still needs an update")
+            if updatedCount > 0 {
+                details.append("Homebrew reported issues.")
+            } else if remainingUpdateCount == 1 {
+                details.append("1 package still needs an update")
             } else if remainingUpdateCount > 1 {
-                let subject = updatedCount > 0
-                    ? "\(remainingUpdateCount)"
-                    : "\(remainingUpdateCount) packages"
-                details.append("\(subject) still need updates")
+                details.append("\(remainingUpdateCount) packages still need updates")
             } else {
                 details.append("Some update operations failed")
             }

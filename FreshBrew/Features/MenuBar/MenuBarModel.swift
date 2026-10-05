@@ -705,6 +705,9 @@ final class MenuBarModel: ObservableObject {
         let verificationUnavailable = pendingVerificationUnavailable
         let xcodeLicenseRequired = pendingXcodeLicenseRequired
         let restartRequired = pendingRestartRequired
+        if hadFailures, !verificationUnavailable, !completedPackages.isEmpty {
+            statusMessage = "Updated with issues"
+        }
         let newlyAvailableCount = verificationUnavailable ? 0 : visiblePackages.filter {
             !knownPackageIDs.contains($0.id)
         }.count

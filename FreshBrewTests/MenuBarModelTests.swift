@@ -4,6 +4,35 @@ import XCTest
 
 @MainActor
 final class MenuBarModelTests: XCTestCase {
+    func testVerifiedUpdatesWithCommandErrorsKeepDiagnosticsAndReportIssues() async {
+        let package = makePackage(named: "yt-dlp", kind: .formula)
+        let timestamp = Date(timeIntervalSince1970: 500)
+        let service = FakeHomebrewService(updateResult: UpdateResult(
+            completedPackages: [makeUpdatedPackage(from: package)],
+            remainingPackages: [],
+            failures: [HomebrewCommandFailure(
+                operation: "upgrade formulas", exitCode: 1, output: "dependency link conflict"
+            )],
+            timestamp: timestamp
+        ))
+        let dependencies = makeDependencies(now: timestamp)
+        defer { dependencies.cleanUp() }
+        let model = makeModel(service: service, dependencies: dependencies)
+        model.autoCleanupEnabled = true
+
+        let result = await model.update(package: package)
+
+        XCTAssertEqual(model.statusMessage, "Updated with issues")
+        XCTAssertNotNil(model.lastErrorMessage)
+        XCTAssertEqual(result?.completedCount, 1)
+        XCTAssertEqual(result?.hasFailures, true)
+        XCTAssertEqual(model.latestUpdate?.packages.count, 1)
+        let cleanupCalls = await service.recordedCleanupDeepValues()
+        XCTAssertTrue(cleanupCalls.isEmpty)
+        let entries = try? await dependencies.errorLogStore.entries(referenceDate: timestamp)
+        XCTAssertEqual(entries?.first?.output, "dependency link conflict")
+    }
+
     func testOnlyRememberedSkippedUpdatesDoNotTriggerRelaunchCheck() async {
         let dependencies = makeDependencies()
         defer { dependencies.cleanUp() }
@@ -750,7 +779,7 @@ final class MenuBarModelTests: XCTestCase {
         XCTAssertTrue(dependencies.preferences.hasPendingHomebrewUpdates)
         XCTAssertEqual(model.latestUpdate?.packages.map(\.name), ["completed"])
         XCTAssertNotNil(model.lastErrorMessage)
-        XCTAssertEqual(model.statusMessage, "Update failed")
+        XCTAssertEqual(model.statusMessage, "Updated with issues")
         XCTAssertEqual(model.activity, .idle)
         let logEntries = try? await dependencies.errorLogStore.entries(
             referenceDate: Date(timeIntervalSince1970: 500)
@@ -932,7 +961,7 @@ final class MenuBarModelTests: XCTestCase {
                 cleanupOutcome: nil
             )]
         )
-        XCTAssertEqual(model.statusMessage, "Update failed")
+        XCTAssertEqual(model.statusMessage, "Updated with issues")
     }
 
     func testUnavailableVerificationPreservesStateAndHistory() async {

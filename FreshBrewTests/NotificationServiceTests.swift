@@ -162,13 +162,25 @@ final class NotificationServiceTests: XCTestCase {
         XCTAssertEqual(partialFailure.title, "")
         XCTAssertEqual(
             partialFailure.body,
-            "3 packages updated · 3 still need updates"
+            "3 packages updated · Homebrew reported issues."
         )
         XCTAssertEqual(totalFailure.title, "")
         XCTAssertEqual(
             totalFailure.body,
             "Update failed · 1 package still needs an update"
         )
+    }
+
+    func testAllVerifiedUpdatesWithErrorsReportHomebrewIssues() {
+        let content = NotificationService.updateResultContent(
+            updatedCount: 8,
+            remainingUpdateCount: 0,
+            hadFailures: true,
+            newlyAvailableCount: 0,
+            cleanupOutcome: nil
+        )
+
+        XCTAssertEqual(content.body, "8 packages updated · Homebrew reported issues.")
     }
 
     func testUpdateResultContentDescribesUnavailableVerification() {

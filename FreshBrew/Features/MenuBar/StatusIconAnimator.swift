@@ -9,11 +9,13 @@ final class StatusIconAnimator {
         let hasAvailableUpdates: Bool
     }
 
-    private weak var button: NSStatusBarButton?
+    private weak var button: NSButton?
     private let animatedImageView = PassThroughImageView()
     private var currentState: PresentationState?
+    private(set) var isAnimationStarted = false
+    private var isAnimationStartScheduled = false
 
-    init(button: NSStatusBarButton) {
+    init(button: NSButton) {
         self.button = button
 
         button.imageScaling = .scaleProportionallyDown
@@ -22,6 +24,9 @@ final class StatusIconAnimator {
         animatedImageView.contentTintColor = .labelColor
         animatedImageView.wantsLayer = true
         animatedImageView.isHidden = true
+        animatedImageView.presentationDidChange = { [weak self] in
+            self?.scheduleAnimationIfReady()
+        }
         button.addSubview(animatedImageView)
 
         NSLayoutConstraint.activate([
@@ -46,22 +51,58 @@ final class StatusIconAnimator {
         switch activity {
         case .checking:
             showAnimatedSymbol("arrow.triangle.2.circlepath", weight: .regular)
-            startCheckingAnimation()
+            scheduleAnimationIfReady()
         case .updating:
             showAnimatedSymbol("arrow.down", weight: .semibold)
-            startUpdatingAnimation()
+            scheduleAnimationIfReady()
         case .cleaning:
             showAnimatedSymbol("arrow.triangle.2.circlepath", weight: .regular)
-            startCheckingAnimation()
+            scheduleAnimationIfReady()
         case .idle:
             showIdleIcon(hasAvailableUpdates: hasAvailableUpdates)
         }
     }
 
     func stop() {
-        stopAnimation()
-        animatedImageView.removeFromSuperview()
         currentState = nil
+        stopAnimation()
+        animatedImageView.presentationDidChange = nil
+        animatedImageView.removeFromSuperview()
+    }
+
+    private var isReadyForAnimation: Bool {
+        animatedImageView.window?.isVisible == true
+            && !animatedImageView.isHiddenOrHasHiddenAncestor
+            && animatedImageView.bounds.width > 0
+            && animatedImageView.bounds.height > 0
+    }
+
+    private func scheduleAnimationIfReady() {
+        guard let state = currentState, state.activity != .idle else { return }
+        if !isReadyForAnimation {
+            if isAnimationStarted { stopAnimation() }
+            return
+        }
+        guard !isAnimationStarted, !isAnimationStartScheduled else { return }
+        isAnimationStartScheduled = true
+
+        // At launch the symbol may be assigned before AppKit presents its view.
+        // Apply the effect after layout/display, and use the latest model state.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            defer { self.isAnimationStartScheduled = false }
+            guard self.isReadyForAnimation,
+                  !self.isAnimationStarted,
+                  let state = self.currentState,
+                  state.activity != .idle else { return }
+            self.animatedImageView.displayIfNeeded()
+            switch state.activity {
+            case .checking, .cleaning: self.startCheckingAnimation()
+            case .updating: self.startUpdatingAnimation()
+            case .idle: return
+            }
+            self.isAnimationStarted = true
+        }
     }
 
     private func showIdleIcon(hasAvailableUpdates: Bool) {
@@ -140,6 +181,7 @@ final class StatusIconAnimator {
     }
 
     private func stopAnimation() {
+        isAnimationStarted = false
         animatedImageView.removeAllSymbolEffects(animated: false)
         animatedImageView.layer?.removeAllAnimations()
         animatedImageView.layer?.opacity = 1
@@ -148,6 +190,33 @@ final class StatusIconAnimator {
 }
 
 private final class PassThroughImageView: NSImageView {
+    var presentationDidChange: (() -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(
+            self, name: NSWindow.didChangeOcclusionStateNotification, object: nil
+        )
+        if let window {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(windowVisibilityChanged),
+                name: NSWindow.didChangeOcclusionStateNotification,
+                object: window
+            )
+        }
+        presentationDidChange?()
+    }
+
+    override func layout() {
+        super.layout()
+        presentationDidChange?()
+    }
+
+    @objc private func windowVisibilityChanged(_ notification: Notification) {
+        presentationDidChange?()
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
     }

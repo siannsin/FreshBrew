@@ -34,6 +34,62 @@ private struct EmptyInventoryCommandRunner: CommandRunning {
 
 @MainActor
 final class AppWorkflowTests: XCTestCase {
+    func testStatusAnimationWaitsForPresentationAndUsesLatestState() async {
+        let button = NSButton(frame: NSRect(x: 0, y: 0, width: 20, height: 22))
+        let animator = StatusIconAnimator(button: button)
+        defer { animator.stop() }
+        animator.setState(activity: .checking, hasAvailableUpdates: false)
+        await nextMainQueueTurn()
+        XCTAssertFalse(animator.isAnimationStarted)
+
+        let window = StatusAnimationTestWindow(
+            contentRect: button.frame, styleMask: [], backing: .buffered, defer: false
+        )
+        window.contentView = button
+        button.layoutSubtreeIfNeeded()
+        window.simulatePresentation(true)
+        animator.setState(activity: .updating, hasAvailableUpdates: false)
+        await nextMainQueueTurn()
+
+        XCTAssertTrue(animator.isAnimationStarted)
+        let imageView = button.subviews.compactMap { $0 as? NSImageView }.first
+        XCTAssertNotNil(imageView?.layer?.animation(forKey: "freshbrew.updating.download"))
+        window.simulatePresentation(false)
+        XCTAssertFalse(animator.isAnimationStarted)
+        window.simulatePresentation(true)
+        await nextMainQueueTurn()
+        XCTAssertTrue(animator.isAnimationStarted)
+    }
+
+    func testStatusAnimationDoesNotRestartAfterIdleOrStop() async {
+        let button = NSButton(frame: NSRect(x: 0, y: 0, width: 20, height: 22))
+        let animator = StatusIconAnimator(button: button)
+        let window = StatusAnimationTestWindow(
+            contentRect: button.frame, styleMask: [], backing: .buffered, defer: false
+        )
+        window.contentView = button
+        button.layoutSubtreeIfNeeded()
+        window.simulatePresentation(true)
+        animator.setState(activity: .checking, hasAvailableUpdates: false)
+        animator.setState(activity: .idle, hasAvailableUpdates: true)
+        await nextMainQueueTurn()
+        XCTAssertFalse(animator.isAnimationStarted)
+        XCTAssertNotNil(button.image)
+
+        animator.setState(activity: .checking, hasAvailableUpdates: false)
+        let animatedImageView = button.subviews.compactMap { $0 as? NSImageView }.first
+        animator.stop()
+        await nextMainQueueTurn()
+        XCTAssertFalse(animator.isAnimationStarted)
+        XCTAssertNil(animatedImageView?.superview)
+    }
+
+    private func nextMainQueueTurn() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+    }
+
     func testPackagesWindowDoesNotAutomaticallyFocusSearchOnOpening() async throws {
         let autosaveKey = "NSWindow Frame \(AppIdentity.bundleName).packages"
         let savedFrame = UserDefaults.standard.object(forKey: autosaveKey)
@@ -395,5 +451,20 @@ final class AppWorkflowTests: XCTestCase {
             currentProcessIdentifier: 10,
             runningProcessIdentifiers: [9, 10]
         ))
+    }
+}
+
+// Exercise visibility transitions without showing or resizing a real window.
+@MainActor
+private final class StatusAnimationTestWindow: NSWindow {
+    private var presented = false
+    override var isVisible: Bool { presented }
+
+    func simulatePresentation(_ visible: Bool) {
+        presented = visible
+        NotificationCenter.default.post(
+            name: NSWindow.didChangeOcclusionStateNotification,
+            object: self
+        )
     }
 }
