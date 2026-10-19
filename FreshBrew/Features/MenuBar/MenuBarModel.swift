@@ -19,6 +19,7 @@ final class MenuBarModel: ObservableObject {
 
     static let unlockCheckDelay: TimeInterval = 60
     static let minimumHomebrewCheckInterval: TimeInterval = 14_400
+    static let notificationUpdateFreshnessInterval: TimeInterval = 60
 
     @Published private(set) var availablePackages: [HomebrewPackage] = []
     @Published private(set) var installedPackages: [InstalledPackage] = []
@@ -185,7 +186,8 @@ final class MenuBarModel: ObservableObject {
     }
 
     func checkUpdates(
-        respectMinimumInterval: Bool = false
+        respectMinimumInterval: Bool = false,
+        notifyAvailableUpdates: Bool = true
     ) async -> Bool {
         guard !isRunning else { return false }
         if respectMinimumInterval, !shouldRunHomebrewCheck() {
@@ -219,7 +221,11 @@ final class MenuBarModel: ObservableObject {
             refreshPendingUpdatesFlag()
             sessionSkippedPackageIDs = []
             statusMessage = "\(AppIdentity.displayName) is ready"
-            await notificationService.postUpdatesAvailable(packages: visiblePackages)
+            if notifyAvailableUpdates {
+                await notificationService.postUpdatesAvailable(packages: visiblePackages)
+            } else {
+                await notificationService.clearUpdatesAvailable()
+            }
             return true
         } catch {
             if error is CancellationError {
@@ -408,10 +414,25 @@ final class MenuBarModel: ObservableObject {
     }
 
     func updateFromNotification(packageIDs: Set<String>?) async -> UpdateResult? {
-        guard await checkUpdates() else { return nil }
+        guard !isRunning else { return nil }
+        if packageIDs != nil, canReuseResultsForNotificationUpdate {
+            await notificationService.clearUpdatesAvailable()
+        } else {
+            // Validate older alerts without announcing the same updates again.
+            guard await checkUpdates(notifyAvailableUpdates: false) else { return nil }
+        }
         // Legacy alerts cannot safely identify which packages were authorized.
         guard let packageIDs else { return nil }
         return await update(packages: visiblePackages.filter { packageIDs.contains($0.id) })
+    }
+
+    private var canReuseResultsForNotificationUpdate: Bool {
+        // A persisted timestamp alone does not restore the checked package results.
+        guard hasKnownAvailablePackages,
+              lastErrorMessage == nil,
+              let checkedAt = lastSuccessfulHomebrewCheckDate else { return false }
+        let age = now().timeIntervalSince(checkedAt)
+        return age >= 0 && age <= Self.notificationUpdateFreshnessInterval
     }
 
     func startAutomaticChecks() {

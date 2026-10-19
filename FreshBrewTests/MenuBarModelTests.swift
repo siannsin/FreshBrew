@@ -4,6 +4,189 @@ import XCTest
 
 @MainActor
 final class MenuBarModelTests: XCTestCase {
+    func testNotificationRecheckDoesNotRepeatAvailableAlertButStillPostsCompletion() async {
+        let package = makePackage(named: "ripgrep", kind: .formula)
+        let service = FakeHomebrewService(
+            checkResponses: [.packages([package]), .packages([package])],
+            updateResult: UpdateResult(
+                completedPackages: [makeUpdatedPackage(from: package)],
+                remainingPackages: [],
+                failures: [],
+                timestamp: Date()
+            )
+        )
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let clock = MutableDateProvider(dependencies.referenceDate)
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications,
+            now: { clock.current() }
+        )
+
+        _ = await model.checkUpdates()
+        clock.set(dependencies.referenceDate.addingTimeInterval(61))
+        _ = await model.updateFromNotification(packageIDs: [package.id])
+
+        let checkCount = await service.checkCount()
+        let updateCounts = await notifications.updateCounts()
+        let completions = await notifications.completions()
+        let clearCount = await notifications.availableAlertClearCount()
+        XCTAssertEqual(checkCount, 2, "The notification action must still recheck")
+        XCTAssertEqual(updateCounts, [1], "Only the initial check should announce availability")
+        XCTAssertEqual(completions.count, 1)
+        XCTAssertEqual(completions.first?.updatedCount, 1)
+        XCTAssertEqual(clearCount, 2, "Both successful validation and verified updates clear stale alerts")
+    }
+
+    func testNotificationUpdateFreshnessBoundary() async {
+        for age: TimeInterval in [0, 59.999, 60, 60.001, -1] {
+            let package = makePackage(named: "ripgrep", kind: .formula)
+            let service = FakeHomebrewService(checkResponses: [.packages([package]), .packages([package])])
+            let dependencies = makeDependencies()
+            defer { dependencies.cleanUp() }
+            let clock = MutableDateProvider(dependencies.referenceDate)
+            let model = makeModel(
+                service: service,
+                dependencies: dependencies,
+                now: { clock.current() }
+            )
+
+            _ = await model.checkUpdates()
+            clock.set(dependencies.referenceDate.addingTimeInterval(age))
+            _ = await model.updateFromNotification(packageIDs: [package.id])
+
+            let count = await service.checkCount()
+            let batches = await service.recordedUpdatePackageIDBatches()
+            let shouldReuse = (0...60).contains(age)
+            XCTAssertEqual(count, shouldReuse ? 1 : 2, "Result age: \(age)")
+            XCTAssertEqual(batches, [[package.id]], "Result age: \(age)")
+        }
+    }
+
+    func testRecentNotificationUpdateUsesCurrentSkipsAndOnlyNotifiedPackages() async {
+        let chosen = makePackage(named: "ripgrep", kind: .formula)
+        let sessionSkipped = makePackage(named: "node", kind: .formula)
+        let alwaysSkipped = makePackage(named: "chatgpt", kind: .cask)
+        let unrelated = makePackage(named: "uv", kind: .formula)
+        let service = FakeHomebrewService(checkResponses: [
+            .packages([chosen, sessionSkipped, alwaysSkipped, unrelated])
+        ])
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+
+        _ = await model.checkUpdates()
+        model.skip(sessionSkipped, remember: false)
+        model.skip(alwaysSkipped, remember: true)
+        _ = await model.updateFromNotification(packageIDs: [chosen.id, sessionSkipped.id, alwaysSkipped.id])
+
+        let count = await service.checkCount()
+        let batches = await service.recordedUpdatePackageIDBatches()
+        let updateCounts = await notifications.updateCounts()
+        XCTAssertEqual(count, 1)
+        XCTAssertEqual(batches, [[chosen.id]])
+        XCTAssertEqual(updateCounts, [4], "Reusing results must not announce availability again")
+    }
+
+    func testNotificationUpdateRechecksAfterGreedyModeInvalidatesRecentResults() async {
+        let package = makePackage(named: "ripgrep", kind: .formula)
+        let service = FakeHomebrewService(checkResponses: [.packages([package]), .packages([package])])
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        dependencies.preferences.greedyModeEnabled = false
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        _ = await model.checkUpdates()
+        model.greedyModeEnabled = true
+        _ = await model.updateFromNotification(packageIDs: [package.id])
+
+        let modes = await service.recordedCheckGreedyValues()
+        XCTAssertEqual(modes, [false, true])
+    }
+
+    func testNotificationUpdateRechecksAfterRelaunchDespiteRecentPersistedTimestamp() async {
+        let package = makePackage(named: "ripgrep", kind: .formula)
+        let service = FakeHomebrewService(checkResponses: [.packages([package])])
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        dependencies.preferences.lastSuccessfulHomebrewCheckDate = dependencies.referenceDate
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        _ = await model.updateFromNotification(packageIDs: [package.id])
+
+        let count = await service.checkCount()
+        let batches = await service.recordedUpdatePackageIDBatches()
+        XCTAssertEqual(count, 1)
+        XCTAssertEqual(batches, [[package.id]])
+    }
+
+    func testNotificationUpdateRechecksAfterFailedCheckDespiteRecentEarlierSuccess() async {
+        let package = makePackage(named: "ripgrep", kind: .formula)
+        let service = FakeHomebrewService(checkResponses: [
+            .packages([package]), .failure(.networkUnavailable), .packages([package])
+        ])
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(service: service, dependencies: dependencies)
+
+        _ = await model.checkUpdates()
+        _ = await model.checkUpdates()
+        _ = await model.updateFromNotification(packageIDs: [package.id])
+
+        let count = await service.checkCount()
+        XCTAssertEqual(count, 3)
+    }
+
+    func testNotificationRecheckFailureStillNotifiesWithoutClearingAvailableAlerts() async {
+        let service = FakeHomebrewService(checkResponses: [.failure(.networkUnavailable)])
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+
+        _ = await model.updateFromNotification(packageIDs: ["formula:ripgrep"])
+
+        let failures = await notifications.failureMessages()
+        let updateCounts = await notifications.updateCounts()
+        let clearCount = await notifications.availableAlertClearCount()
+        let batches = await service.recordedUpdatePackageIDBatches()
+        XCTAssertEqual(failures, ["Network unavailable. Check your connection and try again."])
+        XCTAssertTrue(updateCounts.isEmpty)
+        XCTAssertEqual(clearCount, 0)
+        XCTAssertTrue(batches.isEmpty)
+    }
+
+    func testOrdinaryChecksStillNotifyForUnchangedAvailableUpdates() async {
+        let package = makePackage(named: "ripgrep", kind: .formula)
+        let service = FakeHomebrewService(checkResponses: [.packages([package]), .packages([package])])
+        let notifications = FakeNotificationService()
+        let dependencies = makeDependencies()
+        defer { dependencies.cleanUp() }
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
+
+        _ = await model.checkUpdates()
+        _ = await model.checkUpdates()
+
+        let updateCounts = await notifications.updateCounts()
+        XCTAssertEqual(updateCounts, [1, 1])
+    }
+
     func testNotificationActionRechecksAndUpdatesOnlyNotifiedEligiblePackages() async {
         let notified = makePackage(named: "ripgrep", kind: .formula)
         let unrelated = makePackage(named: "node", kind: .formula)
@@ -38,11 +221,20 @@ final class MenuBarModelTests: XCTestCase {
         defer { dependencies.cleanUp() }
         let package = makePackage(named: "ripgrep", kind: .formula)
         let service = FakeHomebrewService(checkResponses: [.packages([package])])
-        let model = makeModel(service: service, dependencies: dependencies)
+        let notifications = FakeNotificationService()
+        let model = makeModel(
+            service: service,
+            dependencies: dependencies,
+            notificationService: notifications
+        )
         _ = await model.updateFromNotification(packageIDs: nil)
         let batches = await service.recordedUpdatePackageIDBatches()
         XCTAssertTrue(batches.isEmpty)
         XCTAssertEqual(model.visiblePackages, [package])
+        let updateCounts = await notifications.updateCounts()
+        let clearCount = await notifications.availableAlertClearCount()
+        XCTAssertTrue(updateCounts.isEmpty)
+        XCTAssertEqual(clearCount, 1)
     }
 
     func testVerifiedUpdatesWithCommandErrorsKeepDiagnosticsAndReportIssues() async {
